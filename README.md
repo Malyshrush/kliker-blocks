@@ -43,6 +43,14 @@ Kliker Blocks 1.1.6 — публичная бета визуального ре�
 
 Поддержка добровольна. В меню программы «Поддержать проект» и [на сайте](https://malyshrush.github.io/kliker-blocks-site/#support) размещены предоставленные автором пять QR-кодов: USDT для сетей TON, TRC20, ERC20 и Solana, а также Сбербанк. Перед переводом проверьте сеть и данные получателя, считанные из QR-кода.
 
+| USDT · TON | USDT · TRC20 | USDT · ERC20 |
+|:---:|:---:|:---:|
+| ![QR USDT TON](Assets/Support/usdt-ton.png) | ![QR USDT TRC20](Assets/Support/usdt-trc20.png) | ![QR USDT ERC20](Assets/Support/usdt-erc20.png) |
+
+| USDT · Solana | Сбербанк / Sberbank |
+|:---:|:---:|
+| ![QR USDT Solana](Assets/Support/usdt-sol.png) | ![QR Сбербанк](Assets/Support/sberbank.jpg) |
+
 ## Данные и безопасность
 
 Имена пользовательских переменных и массивов: латинские буквы, цифры и `_`, первый символ — буква или `_`. Примеры: `user_name`, `count_2`. При работе с окнами и файлами сначала сохраните свои данные. Kliker Blocks не удаляет пользовательские сценарии при выпуске новой версии.
