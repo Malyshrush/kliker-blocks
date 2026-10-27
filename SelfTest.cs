@@ -71,6 +71,7 @@ internal static class SelfTest
         TestInstalledProgramCatalog();
         TestHelpGraphExamples();
         TestEditorInsertionAndMove();
+        TestGraphAppearanceAndRouting();
         TestEnglishMainWindow();
         Console.WriteLine("UI and editor tests passed.");
         TestEnglishHelpCoverage();
@@ -1911,6 +1912,82 @@ internal static class SelfTest
         TestShowcaseButtonLayout();
         TestSequentialWindowLoops();
         Console.WriteLine("Self-test passed");
+    }
+
+    private static void TestGraphAppearanceAndRouting()
+    {
+        var start = BlockCatalog.Create("Start", 40, 40);
+        var middle = BlockCatalog.Create("Log", 320, 60);
+        var target = BlockCatalog.Create("Log", 620, 80);
+        var original = BlockAppearanceManager.Resolve(middle).Copy();
+        try
+        {
+            BlockAppearanceManager.Reload(new AppSettings());
+            var input = GraphLinkRouter.InputPoint(middle);
+            var output = GraphLinkRouter.OutputPoint(start, 0);
+            Assert(input.X <= middle.X + 20 && input.Y <= middle.Y + 20 &&
+                output.X >= start.X + BlockCatalog.Width - 20 &&
+                output.Y >= start.Y + BlockCatalog.Height(start) - 20,
+                "default ports sit on upper-left/lower-right block outlines");
+            using (var outline = BlockGeometry.Outline(BlockCatalog.Bounds(middle), "Rounded"))
+                Assert(outline.IsOutlineVisible(input, new Pen(Color.Black, 5)),
+                    "default input lies on rounded outline");
+            foreach (var shape in new[] { "Rectangle", "Square", "Circle", "Diamond" })
+            {
+                middle.Appearance = new BlockAppearance { Shape = shape, InputAngle = 270,
+                    OutputAngles = new Dictionary<string, int> { ["Далее"] = 90 },
+                    FillColor = "#123456", FillOpacityPercent = 55,
+                    BorderColor = "#ABCDEF", BorderOpacityPercent = 75, BorderWidth = 2.5m };
+                using var path = BlockGeometry.Outline(BlockCatalog.Bounds(middle), shape);
+                using var pen = new Pen(Color.Black, 5);
+                Assert(path.IsOutlineVisible(GraphLinkRouter.InputPoint(middle), pen) &&
+                    path.IsOutlineVisible(GraphLinkRouter.OutputPoint(middle, 0), pen),
+                    $"{shape} ports remain on contour");
+            }
+            middle.Appearance = new BlockAppearance { Shape = "Circle", InputAngle = 135,
+                OutputAngles = new Dictionary<string, int> { ["Далее"] = 315 } };
+            start.LinkStyles["Далее"] = new LinkAppearance { End = "Diamond", Pattern = "Dash",
+                Color = "#12AB34", OpacityPercent = 64, Thickness = 3.5m };
+            start.Links["Далее"] = target.Id;
+            var nodes = new[] { start, middle, target };
+            var route = GraphLinkRouter.Route(start, 0, target, nodes);
+            Assert(route.Length >= 3 && route[0] == GraphLinkRouter.OutputPoint(start, 0) &&
+                route[^1] == GraphLinkRouter.InputPoint(target) &&
+                Enumerable.Range(1, route.Length - 1).All(i =>
+                    !GraphLinkRouter.CrossesInterior(route[i - 1], route[i], BlockCatalog.Bounds(middle))),
+                "connection routes around intervening block");
+            var project = new ProjectModel { Nodes = [start, middle, target] };
+            var code = GraphCodeCodec.Serialize(project);
+            var parsed = GraphCodeCodec.Parse(code);
+            Assert(parsed[0].LinkStyles["Далее"].End == "Diamond" &&
+                parsed[1].Appearance?.InputAngle == 135 &&
+                GraphCodeCodec.Serialize(new ProjectModel { Nodes = parsed }) == code,
+                "block and link appearances survive code round trip");
+            var snapshot = BlockClipboard.Copy([middle]);
+            Assert(snapshot.Single().Appearance?.Shape == "Circle" &&
+                !ReferenceEquals(snapshot.Single().Appearance, middle.Appearance),
+                "block appearance is copied independently");
+            var pasted = BlockClipboard.Paste(snapshot, new Point(900, 900), new ProjectModel());
+            Assert(pasted.Single().Appearance?.InputAngle == 135,
+                "pasted block keeps custom port position");
+            var defaults = new AppSettings { BlockAppearanceDefaults = new Dictionary<string, BlockAppearance>
+                { ["Log"] = new() { Shape = "Diamond" } } };
+            BlockAppearanceManager.Reload(defaults);
+            Assert(BlockAppearanceManager.Resolve(BlockCatalog.Create("Log", 0, 0)).Shape == "Diamond" &&
+                BlockAppearanceManager.Resolve(middle).Shape == "Circle",
+                "per-type default applies to new blocks and local appearance overrides it");
+            UiLanguage.Configure("en");
+            foreach (var text in new[] { "Оформление блока…", "Форма блока", "Точка на контуре",
+                "Выбрать цвет заливки…", "Оформление связи", "Штриховая", "Стрелка" })
+                Assert(UiLanguage.Has(text) && !UiLanguage.T(text).Any(c => c is >= '\u0400' and <= '\u04FF'),
+                    $"English graph appearance control: {text}");
+            UiLanguage.Configure("ru");
+        }
+        finally
+        {
+            BlockAppearanceManager.Reload(AppSettings.Load());
+            UiLanguage.Configure("ru");
+        }
     }
 
     private static void TestMouseMappings()

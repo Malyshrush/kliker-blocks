@@ -1,5 +1,15 @@
-#define AppVersion "1.1.6"
+#define AppVersion "1.1.7"
 #define AppName "Kliker Blocks"
+#ifndef BuildArch
+  #define BuildArch "x64"
+#endif
+#if BuildArch == "x86"
+  #define AllowedArchitectures "x86compatible"
+#elif BuildArch == "x64"
+  #define AllowedArchitectures "x64compatible"
+#else
+  #error Unsupported BuildArch
+#endif
 
 [Setup]
 AppId={{5D2B46B1-33F0-4290-A73B-AD3D966D5E44}
@@ -10,15 +20,15 @@ AppPublisher=Kliker Blocks
 DefaultDirName={localappdata}\Programs\Kliker Blocks
 DefaultGroupName=Kliker Blocks
 DisableProgramGroupPage=yes
-OutputDir=..\publish-v116
-OutputBaseFilename=KlikerBlocks-Setup-{#AppVersion}
+OutputDir=..\publish-v117
+OutputBaseFilename=KlikerBlocks-Setup-{#AppVersion}-{#BuildArch}
 SetupIconFile=..\Assets\Kliker.ico
 UninstallDisplayIcon={app}\Kliker.Blocks.exe
 Compression=lzma2/max
 SolidCompression=yes
 DiskSpanning=no
 PrivilegesRequired=lowest
-ArchitecturesAllowed=x64compatible
+ArchitecturesAllowed={#AllowedArchitectures}
 ShowLanguageDialog=no
 LanguageDetectionMethod=uilanguage
 UsePreviousLanguage=no
@@ -44,7 +54,7 @@ Name: "autostart"; Description: "{cm:Autostart}"; Flags: unchecked
 Name: "taskbartip"; Description: "{cm:TaskbarTip}"; Flags: unchecked
 
 [Files]
-Source: "..\installer-payload-v116\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\installer-payload-v117-{#BuildArch}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{autoprograms}\Kliker Blocks"; Filename: "{app}\Kliker.Blocks.exe"

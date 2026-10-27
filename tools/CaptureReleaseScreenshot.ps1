@@ -1,5 +1,5 @@
 param([string]$Output = 'screenshots\editor-ru.png', [string]$PreviewArgument = '--ui-preview',
-    [switch]$Resize)
+    [switch]$Resize, [string]$Executable)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 Add-Type @'
@@ -15,7 +15,8 @@ public static class WindowCaptureNative {
 '@
 $null = [WindowCaptureNative]::SetProcessDPIAware()
 $project = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
-$exe = Join-Path $project 'bin\Release\net10.0-windows10.0.19041.0\Kliker.Blocks.exe'
+$exe = if ($Executable) { (Resolve-Path -LiteralPath $Executable).Path }
+       else { Join-Path $project 'bin\Release\net10.0-windows10.0.19041.0\Kliker.Blocks.exe' }
 $target = Join-Path $project $Output
 New-Item -ItemType Directory -Force -Path (Split-Path $target -Parent) | Out-Null
 $process = Start-Process -FilePath $exe -ArgumentList $PreviewArgument -PassThru

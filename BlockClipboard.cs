@@ -17,7 +17,9 @@ internal static class BlockClipboard
             LogActions = node.LogActions,
             Values = new Dictionary<string, string>(node.Values),
             Links = node.Links.ToDictionary(link => link.Key,
-                link => link.Value is Guid target && ids.Contains(target) ? (Guid?)target : null)
+                link => link.Value is Guid target && ids.Contains(target) ? (Guid?)target : null),
+            LinkStyles = node.LinkStyles.ToDictionary(style => style.Key, style => style.Value.Copy()),
+            Appearance = node.Appearance?.Copy()
         }).ToList();
     }
 
@@ -36,7 +38,9 @@ internal static class BlockClipboard
             LogActions = node.LogActions,
             Values = new Dictionary<string, string>(node.Values),
             Links = node.Links.ToDictionary(link => link.Key,
-                link => link.Value is Guid target && ids.TryGetValue(target, out var mapped) ? (Guid?)mapped : null)
+                link => link.Value is Guid target && ids.TryGetValue(target, out var mapped) ? (Guid?)mapped : null),
+            LinkStyles = node.LinkStyles.ToDictionary(style => style.Key, style => style.Value.Copy()),
+            Appearance = node.Appearance?.Copy()
         }).ToList();
         project.Nodes.AddRange(copies);
         return copies;

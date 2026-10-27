@@ -73,7 +73,10 @@ internal sealed class AboutForm : Form
     }
 
     private static string BuildReleases(Copy copy) =>
-        "v1.1.6\r\n" + (UiLanguage.Code == "ru"
+        "v1.1.7\r\n" + (UiLanguage.Code == "ru"
+            ? "Отдельные установщики и переносимые сборки для Windows x64 и x86. Блоки получили форму, заливку, окантовку и настраиваемые точки на контуре. Связи обходят блоки; для них настраиваются стрелка, рисунок линии, цвет, прозрачность и толщина. Стандарт блока можно сохранить для всего типа."
+            : "Separate installers and portable builds for Windows x64 and x86. Blocks now offer shape, fill, border and adjustable outline ports. Connections route around blocks; arrow, pattern, color, opacity and width can be customized. A block appearance can be saved as the default for its type.") +
+        "\r\n\r\nv1.1.6\r\n" + (UiLanguage.Code == "ru"
             ? "Исправлены пустые координаты и размеры у трёх диалоговых блоков: окно теперь открывается по центру и подбирает размер под текст. В свойствах и справке показаны допустимые пределы для каждого диалога. Добавлены сайт, форум и раздел добровольной поддержки проекта с пятью QR-кодами: четыре USDT и Сбербанк."
             : "Fixed blank coordinates and dimensions in all three dialog blocks: the window now opens centered and sizes to its text. Each dialog shows its size limits in properties and Help. Added the website, forum and a voluntary support section with five QR codes: four USDT and Sberbank.") +
         "\r\n\r\nv1.1.5\r\n" + (UiLanguage.Code == "ru"

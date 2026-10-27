@@ -25,6 +25,9 @@ internal static class GraphCodeCodec
     private static readonly Regex Link = new(
         "^link\\s+(?<key>\"(?:\\\\.|[^\"\\\\])*\")\\s*->\\s*(?<target>[A-Za-z][A-Za-z0-9_]*|none)$",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex LinkStyle = new(
+        "^style\\s+(?<key>\"(?:\\\\.|[^\"\\\\])*\")\\s*=\\s*(?<appearance>\\{.*\\})$",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     public static string Serialize(ProjectModel project)
     {
@@ -47,6 +50,18 @@ internal static class GraphCodeCodec
                     throw new InvalidOperationException($"У блока {aliases[node.Id]} связь «{key}» ведёт на отсутствующий блок.");
                 result.Append("  link ").Append(JsonSerializer.Serialize(key, JsonOptions)).Append(" -> ")
                     .Append(target is Guid id && aliases.TryGetValue(id, out var name) ? name : "none").AppendLine();
+            }
+            foreach (var (key, appearance) in node.LinkStyles.OrderBy(item => item.Key, StringComparer.Ordinal))
+            {
+                if (!BlockCatalog.Get(node.Kind).Outputs.Contains(key) || !appearance.IsValid())
+                    throw new InvalidOperationException($"Invalid link style for {node.Kind}: {key}");
+                result.Append("  style ").Append(JsonSerializer.Serialize(key, JsonOptions)).Append(" = ")
+                    .Append(JsonSerializer.Serialize(appearance, JsonOptions)).AppendLine();
+            }
+            if (node.Appearance is { } blockAppearance)
+            {
+                if (!blockAppearance.IsValid()) throw new InvalidOperationException($"Invalid block appearance: {node.Kind}");
+                result.Append("  appearance = ").Append(JsonSerializer.Serialize(blockAppearance, JsonOptions)).AppendLine();
             }
             result.AppendLine("end").AppendLine();
         }
@@ -125,7 +140,30 @@ internal static class GraphCodeCodec
                 pending.Add((current, output, link.Groups["target"].Value, lineNumber));
                 continue;
             }
-            throw new GraphCodeException(lineNumber, "Ожидается trace true/false, value, link или end.");
+            var style = LinkStyle.Match(text);
+            if (style.Success)
+            {
+                var output = ReadString(style.Groups["key"].Value, lineNumber);
+                LinkAppearance? appearance;
+                try { appearance = JsonSerializer.Deserialize<LinkAppearance>(style.Groups["appearance"].Value); }
+                catch (JsonException) { appearance = null; }
+                if (!BlockCatalog.Get(current.Kind).Outputs.Contains(output) ||
+                    appearance is null || !appearance.IsValid() || current.LinkStyles.ContainsKey(output))
+                    throw new GraphCodeException(lineNumber, UiLanguage.T("Неверное оформление связи. Проверьте тип окончания, линию, цвет #RRGGBB, прозрачность 5–100 и толщину 1–12."));
+                current.LinkStyles[output] = appearance;
+                continue;
+            }
+            if (text.StartsWith("appearance = ", StringComparison.OrdinalIgnoreCase))
+            {
+                BlockAppearance? appearance;
+                try { appearance = JsonSerializer.Deserialize<BlockAppearance>(text[13..]); }
+                catch (JsonException) { appearance = null; }
+                if (appearance is null || !appearance.IsValid() || current.Appearance is not null)
+                    throw new GraphCodeException(lineNumber, UiLanguage.T("Неверное оформление блока."));
+                current.Appearance = appearance;
+                continue;
+            }
+            throw new GraphCodeException(lineNumber, UiLanguage.T("Ожидается trace true/false, value, link, style, appearance или end."));
         }
         if (current is not null) throw new GraphCodeException(lines.Length, "Не хватает end для последнего блока.");
         foreach (var (node, output, target, line) in pending)

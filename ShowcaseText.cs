@@ -103,12 +103,12 @@ internal static class ShowcaseText
         .All(values => values.Length == Codes.Length && values.All(v => !string.IsNullOrWhiteSpace(v)));
     public static string Get(string key) => key == "help_overview" ? UiLanguage.Code switch
     {
-        "en" => "Kliker Blocks 1.1.6 is a public beta visual Windows scenario editor. On first launch, choose English or Russian before the editor and demo open; change it later in Languages. Each block has a copyable example graph in Help. The demo uses its own Notepad document and follows the interface language. The release includes a portable build and a single-file installer. Scenario → Start with Windows toggles autostart for your Windows account. Pin the running app through the Windows taskbar context menu.",
+        "en" => "Kliker Blocks 1.1.7 is a public beta visual Windows scenario editor. On first launch, choose English or Russian before the editor and demo open; change it later in Languages. Each block has a copyable example graph in Help. The demo uses its own Notepad document and follows the interface language. The release includes separate x64 and x86 portable builds and single-file installers. Scenario → Start with Windows toggles autostart for your Windows account. Pin the running app through the Windows taskbar context menu.",
         "fr" => "Kliker Blocks 1.0 est une version bêta publique de l'éditeur visuel de scénarios Windows. Chaque bloc possède un exemple de graphe copiable dans l'aide.",
         "es" => "Kliker Blocks 1.0 es una versión beta pública del editor visual de escenarios de Windows. Cada bloque tiene un ejemplo de grafo copiable en la ayuda.",
         "zh" => "Kliker Blocks 1.0 是 Windows 可视化场景编辑器的公开测试版。帮助中每个模块都有可复制的示例图。",
         "de" => "Kliker Blocks 1.0 ist eine öffentliche Beta des visuellen Windows-Szenarioeditors. Für jeden Block gibt es ein kopierbares Beispiel in der Hilfe.",
-        _ => "Kliker Blocks 1.1.6 — публичная бета визуального редактора сценариев Windows. При первом запуске выберите русский или английский до открытия редактора и демонстрации. В справке каждого блока есть копируемый граф примера. Выпуск содержит переносимую сборку и однофайловый установщик; автозапуск настраивается в меню «Сценарий»."
+        _ => "Kliker Blocks 1.1.7 — публичная бета визуального редактора сценариев Windows. При первом запуске выберите русский или английский до открытия редактора и демонстрации. В справке каждого блока есть копируемый граф примера. Выпуск содержит отдельные переносимые сборки и однофайловые установщики для x64 и x86; автозапуск настраивается в меню «Сценарий»."
     } : Lines[key][Math.Max(0, Array.IndexOf(Codes, UiLanguage.Code))];
     public static string Format(string key, params object[] args) => string.Format(CultureInfo.InvariantCulture, Get(key), args);
     public static string ShapeOptions => string.Join('\n', Get("shape_star"), Get("shape_heart"), Get("shape_house"));

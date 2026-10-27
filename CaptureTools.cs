@@ -15,6 +15,7 @@ internal sealed class AppSettings
     public bool JournalWordWrap { get; set; } = true;
     public string ArgosPythonPath { get; set; } = "Встроенный";
     public string TranslationEndpoint { get; set; } = "http://127.0.0.1:5000/translate";
+    public Dictionary<string, BlockAppearance> BlockAppearanceDefaults { get; set; } = [];
 
     private static string FilePath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "KLIKER Blocks", "settings.json");

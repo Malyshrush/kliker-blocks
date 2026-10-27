@@ -1356,6 +1356,67 @@ internal sealed class MainForm : Form
                 UiLanguage.T(BlockCatalog.Get(source.Kind).Title), UiLanguage.T(BlockCatalog.Get(target.Kind).Title), UiLanguage.T(port)),
             Width = 250, AutoSize = true, MaximumSize = new Size(250, 0)
         });
+        var appearance = (source.LinkStyles.GetValueOrDefault(port) ?? new LinkAppearance()).Copy();
+        void SaveAppearance()
+        {
+            source.LinkStyles[port] = appearance.Copy();
+            _graph.Invalidate();
+        }
+        _fields.Controls.Add(new Label { Text = UiLanguage.T("Оформление связи"), Width = 250,
+            Height = 30, Font = new Font(Font, FontStyle.Bold), Margin = new Padding(0, 12, 0, 0) });
+        _fields.Controls.Add(new Label { Text = UiLanguage.T("Наконечник"), Width = 250, Height = 22 });
+        var ends = new (string Key, string Label)[] { ("Arrow", "Стрелка"), ("Line", "Линия"),
+            ("Diamond", "Ромб"), ("Circle", "Круг") };
+        var endChoice = new ComboBox { Width = 250, DropDownStyle = ComboBoxStyle.DropDownList };
+        endChoice.Items.AddRange(ends.Select(item => UiLanguage.T(item.Label)).Cast<object>().ToArray());
+        endChoice.SelectedIndex = Math.Max(0, Array.FindIndex(ends, item => item.Key == appearance.End));
+        endChoice.SelectedIndexChanged += (_, _) => { appearance.End = ends[endChoice.SelectedIndex].Key; SaveAppearance(); };
+        _fields.Controls.Add(endChoice);
+        _fields.Controls.Add(new Label { Text = UiLanguage.T("Рисунок линии"), Width = 250, Height = 22 });
+        var patterns = new (string Key, string Label)[] { ("Solid", "Сплошная"),
+            ("Dash", "Штриховая"), ("Dot", "Точечная"), ("DashDot", "Штрих-пунктир"),
+            ("DashDotDot", "Штрих-точка-точка") };
+        var patternChoice = new ComboBox { Width = 250, DropDownStyle = ComboBoxStyle.DropDownList };
+        patternChoice.Items.AddRange(patterns.Select(item => UiLanguage.T(item.Label)).Cast<object>().ToArray());
+        patternChoice.SelectedIndex = Math.Max(0, Array.FindIndex(patterns, item => item.Key == appearance.Pattern));
+        patternChoice.SelectedIndexChanged += (_, _) => { appearance.Pattern = patterns[patternChoice.SelectedIndex].Key; SaveAppearance(); };
+        _fields.Controls.Add(patternChoice);
+        var color = new Button { Width = 250, Height = 36 };
+        void RefreshColorButton()
+        {
+            color.Text = UiLanguage.T("Цвет связи") + ": " + appearance.Color;
+            color.BackColor = ColorTranslator.FromHtml(appearance.Color);
+            color.ForeColor = color.BackColor.GetBrightness() < .55f ? Color.White : Color.Black;
+        }
+        RefreshColorButton();
+        color.Click += (_, _) =>
+        {
+            using var picker = new ColorDialog { Color = ColorTranslator.FromHtml(appearance.Color), FullOpen = true };
+            if (picker.ShowDialog(_editorWindow ?? this) != DialogResult.OK) return;
+            appearance.Color = $"#{picker.Color.R:X2}{picker.Color.G:X2}{picker.Color.B:X2}";
+            RefreshColorButton();
+            SaveAppearance();
+        };
+        _fields.Controls.Add(color);
+        _fields.Controls.Add(new Label { Text = UiLanguage.T("Непрозрачность связи, % (5–100)"),
+            Width = 250, Height = 22 });
+        var opacity = new NumericUpDown { Width = 250, Minimum = 5, Maximum = 100,
+            Value = appearance.OpacityPercent, Increment = 5 };
+        opacity.ValueChanged += (_, _) => { appearance.OpacityPercent = (int)opacity.Value; SaveAppearance(); };
+        _fields.Controls.Add(opacity);
+        _fields.Controls.Add(new Label { Text = UiLanguage.T("Толщина связи (1–12)"), Width = 250, Height = 22 });
+        var thickness = new NumericUpDown { Width = 250, Minimum = 1, Maximum = 12,
+            DecimalPlaces = 1, Increment = .5m, Value = appearance.Thickness };
+        thickness.ValueChanged += (_, _) => { appearance.Thickness = thickness.Value; SaveAppearance(); };
+        _fields.Controls.Add(thickness);
+        var reset = new Button { Text = UiLanguage.T("Сбросить оформление связи"), Width = 250, Height = 34 };
+        reset.Click += (_, _) =>
+        {
+            source.LinkStyles.Remove(port);
+            _graph.Invalidate();
+            ShowLinkProperties(source, port, target);
+        };
+        _fields.Controls.Add(reset);
         var delete = new Button { Text = UiLanguage.T("Удалить связь"), Width = 250, Height = 36 };
         delete.Click += (_, _) => DeleteSelected();
         _fields.Controls.Add(delete);
@@ -1390,6 +1451,29 @@ internal sealed class MainForm : Form
             Height = 28, Checked = node.LogActions, Margin = new Padding(0, 4, 0, 8) };
         trace.CheckedChanged += (_, _) => { node.LogActions = trace.Checked; _graph.Invalidate(); };
         _fields.Controls.Add(trace);
+        var appearanceButton = new Button { Text = UiLanguage.T("Оформление блока…"),
+            Width = 250, Height = 36, Margin = new Padding(0, 2, 0, 8) };
+        appearanceButton.Click += (_, _) =>
+        {
+            using var editor = new BlockAppearanceForm(node);
+            if (editor.ShowDialog(_editorWindow ?? this) != DialogResult.OK) return;
+            if (editor.SaveAsDefault)
+            {
+                try { BlockAppearanceManager.SaveDefault(node.Kind, editor.Appearance, _settings); }
+                catch (Exception error)
+                {
+                    MessageBox.Show(_editorWindow ?? this, error.Message,
+                        UiLanguage.T("Оформление блока"), MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+                node.Appearance = null;
+            }
+            else node.Appearance = editor.Appearance;
+            ExpandCanvas();
+            ShowProperties(node);
+            _graph.Invalidate();
+        };
+        _fields.Controls.Add(appearanceButton);
         foreach (var field in spec.Fields)
         {
             _fields.Controls.Add(new Label { Text = UiLanguage.Has(field.Label)
@@ -2383,29 +2467,51 @@ internal sealed class GraphCanvas : Control
                 if (source.Link(ports[i]) is not Guid targetId) continue;
                 var target = Project.Nodes.FirstOrDefault(n => n.Id == targetId);
                 if (target == null || target.Kind == "Description") continue;
-                var p1 = OutputPoint(source, i);
-                var p2 = InputPoint(target);
-                using var path = new GraphicsPath();
-                path.AddBezier(p1, new Point(p1.X + 70, p1.Y), new Point(p2.X - 70, p2.Y), p2);
+                var route = GraphLinkRouter.Route(source, i, target, Project.Nodes);
+                if (route.Length < 2) continue;
                 var selected = _selectedLink == (source.Id, ports[i]);
-                using var pen = new Pen(selected ? Color.FromArgb(255, 151, 31) : Color.FromArgb(76, 112, 171), selected ? 5f : 2.5f);
-                g.DrawPath(pen, path);
+                var appearance = source.LinkStyles.GetValueOrDefault(ports[i]) ?? new LinkAppearance();
+                if (!appearance.IsValid()) appearance = new LinkAppearance();
+                var baseColor = ColorTranslator.FromHtml(appearance.Color);
+                var color = selected ? Color.FromArgb(255, 151, 31)
+                    : Color.FromArgb((int)Math.Round(255 * appearance.OpacityPercent / 100d), baseColor);
+                using var pen = new Pen(color, (float)appearance.Thickness + (selected ? 1.5f : 0f))
+                { LineJoin = LineJoin.Round, DashCap = DashCap.Round, DashStyle = appearance.Pattern switch
+                    { "Dash" => DashStyle.Dash, "Dot" => DashStyle.Dot,
+                      "DashDot" => DashStyle.DashDot, "DashDotDot" => DashStyle.DashDotDot,
+                      _ => DashStyle.Solid } };
+                g.DrawLines(pen, route);
+                DrawEndDecoration(g, color, route[^2], route[^1], appearance.End);
             }
         }
 
         foreach (var node in Project.Nodes.Where(node => node.Kind != "Description"))
         {
             var spec = BlockCatalog.Get(node.Kind);
-            var rectangle = new Rectangle(node.X, node.Y, BlockCatalog.Width, BlockCatalog.Height(node));
-            using var fill = new SolidBrush(spec.Color);
+            var rectangle = BlockCatalog.Bounds(node);
+            var appearance = BlockAppearanceManager.Resolve(node);
+            var fillColor = appearance.FillColor.Length == 0 ? spec.Color : ColorTranslator.FromHtml(appearance.FillColor);
+            using var fill = new SolidBrush(Color.FromArgb(
+                (int)Math.Round(255 * appearance.FillOpacityPercent / 100d), fillColor));
             var selected = _selectedNodes.Contains(node.Id);
-            using var border = new Pen(selected ? Color.FromArgb(255, 184, 53) : Color.FromArgb(66, 75, 90), selected ? 3 : 1);
-            g.FillRoundedRectangle(fill, rectangle, 9);
-            g.DrawRoundedRectangle(border, rectangle, 9);
+            var borderColor = ColorTranslator.FromHtml(appearance.BorderColor);
+            using var border = new Pen(selected ? Color.FromArgb(255, 184, 53) :
+                Color.FromArgb((int)Math.Round(255 * appearance.BorderOpacityPercent / 100d), borderColor),
+                selected ? Math.Max(3, (float)appearance.BorderWidth + 1.5f) : (float)appearance.BorderWidth);
+            using var outline = BlockGeometry.Outline(rectangle, appearance.Shape);
+            g.FillPath(fill, outline);
+            g.DrawPath(border, outline);
             using var titleFont = new Font(Font.FontFamily, 10, FontStyle.Bold);
             using var hintFont = new Font(Font.FontFamily, 8);
-            g.DrawString(node.Kind == "ShowcaseStep" ? node.Value("Caption", UiLanguage.T(spec.Title)) :
-                UiLanguage.T(spec.Title), titleFont, Brushes.White, node.X + 14, node.Y + 7);
+            var title = node.Kind == "ShowcaseStep" ? node.Value("Caption", UiLanguage.T(spec.Title)) :
+                UiLanguage.T(spec.Title);
+            var tall = appearance.Shape is "Square" or "Circle" or "Diamond";
+            using var centerText = new StringFormat { Alignment = StringAlignment.Center,
+                Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap };
+            if (tall) g.DrawString(title, titleFont, Brushes.White,
+                new RectangleF(node.X + 23, node.Y + 62, BlockCatalog.Width - 46, 24), centerText);
+            else g.DrawString(title, titleFont, Brushes.White,
+                new RectangleF(node.X + 14, node.Y + 7, BlockCatalog.Width - 28, 22));
             var hint = UiLanguage.TOr(spec.Hint, "Настройте параметры блока ниже.");
             if (node.Kind == "WatchCursor")
             {
@@ -2420,13 +2526,30 @@ internal sealed class GraphCanvas : Control
                 };
                 hint = $"{node.Value("ActivationKey", "F9")} {UiLanguage.T(mode)} + {UiLanguage.T(required)}";
             }
-            g.DrawString(hint, hintFont, Brushes.WhiteSmoke, new RectangleF(node.X + 14, node.Y + 28, 165, 19));
-            if (node.Kind != "Start") g.FillEllipse(Brushes.White, node.X - 5, node.Y + 10, 12, 12);
+            g.DrawString(hint, hintFont, Brushes.WhiteSmoke,
+                tall ? new RectangleF(node.X + 34, node.Y + 89, BlockCatalog.Width - 68, 19)
+                     : new RectangleF(node.X + 14, node.Y + 28, 165, 19),
+                tall ? centerText : StringFormat.GenericDefault);
+            if (node.Kind != "Start")
+            {
+                var input = InputPoint(node);
+                using var blue = new SolidBrush(Color.FromArgb(46, 111, 229));
+                using var ring = new Pen(Color.White, 2f);
+                g.FillEllipse(blue, input.X - 7, input.Y - 7, 14, 14);
+                g.DrawEllipse(ring, input.X - 7, input.Y - 7, 14, 14);
+            }
             for (var i = 0; i < spec.Outputs.Length; i++)
             {
                 var p = OutputPoint(node, i);
-                g.FillEllipse(_pending == (node.Id, spec.Outputs[i]) ? Brushes.Orange : Brushes.White, p.X - 6, p.Y - 6, 12, 12);
-                g.DrawString(UiLanguage.T(spec.Outputs[i]), hintFont, Brushes.White, node.X + 14, p.Y - 7);
+                using var red = new SolidBrush(Color.FromArgb(230, 71, 77));
+                using var ring = new Pen(_pending == (node.Id, spec.Outputs[i]) ? Color.Gold : Color.White, 2f);
+                g.FillEllipse(red, p.X - 7, p.Y - 7, 14, 14);
+                g.DrawEllipse(ring, p.X - 7, p.Y - 7, 14, 14);
+                using var labelFormat = new StringFormat { Alignment = tall ? StringAlignment.Center : StringAlignment.Far,
+                    Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap };
+                g.DrawString(UiLanguage.T(spec.Outputs[i]), hintFont, Brushes.White,
+                    tall ? new RectangleF(node.X + 50, node.Y + 117 + i * 21, BlockCatalog.Width - 100, 18)
+                         : new RectangleF(node.X + 14, p.Y - 24, BlockCatalog.Width - 31, 18), labelFormat);
             }
         }
         if (_insertionWorldPoint is { } insertion)
@@ -2451,18 +2574,64 @@ internal sealed class GraphCanvas : Control
         }
     }
 
+    private static void DrawEndDecoration(Graphics graphics, Color color, Point before, Point target, string end)
+    {
+        if (end == "Line") return;
+        var dx = target.X - before.X;
+        var dy = target.Y - before.Y;
+        var length = Math.Sqrt((double)dx * dx + (double)dy * dy);
+        if (length < 1) return;
+        var ux = dx / length;
+        var uy = dy / length;
+        var tip = new PointF((float)(target.X - ux * 9), (float)(target.Y - uy * 9));
+        using var brush = new SolidBrush(color);
+        if (end == "Circle")
+        {
+            graphics.FillEllipse(brush, tip.X - 5, tip.Y - 5, 10, 10);
+            return;
+        }
+        var baseX = tip.X - ux * 10;
+        var baseY = tip.Y - uy * 10;
+        if (end == "Diamond")
+        {
+            graphics.FillPolygon(brush,
+            [
+                tip,
+                new PointF((float)(baseX - uy * 5), (float)(baseY + ux * 5)),
+                new PointF((float)(baseX - ux * 10), (float)(baseY - uy * 10)),
+                new PointF((float)(baseX + uy * 5), (float)(baseY - ux * 5))
+            ]);
+            return;
+        }
+        graphics.FillPolygon(brush,
+        [
+            tip,
+            new PointF((float)(baseX - uy * 5), (float)(baseY + ux * 5)),
+            new PointF((float)(baseX + uy * 5), (float)(baseY - ux * 5))
+        ]);
+    }
+
     private void DrawDescription(Graphics g, BlockNode node)
     {
         var area = DescriptionGeometry.Bounds(node);
-        var color = DescriptionGeometry.FillColor(node);
-        var alpha = (int)Math.Round(255 * DescriptionGeometry.Opacity(node) / 100d);
+        var style = BlockAppearanceManager.Resolve(node);
+        var color = style.FillColor.Length == 0 ? DescriptionGeometry.FillColor(node)
+            : ColorTranslator.FromHtml(style.FillColor);
+        var alpha = (int)Math.Round(255 * DescriptionGeometry.Opacity(node) *
+            style.FillOpacityPercent / 10000d);
         using var fill = new SolidBrush(Color.FromArgb(alpha, color));
         using var header = new SolidBrush(Color.FromArgb(190, Color.White));
         using var outline = new Pen(_selectedNodes.Contains(node.Id) ? Color.FromArgb(255, 157, 31)
-            : Color.FromArgb(190, color.R, color.G, color.B), _selectedNodes.Contains(node.Id) ? 3f : 1.5f);
-        g.FillRectangle(fill, area);
+            : Color.FromArgb((int)Math.Round(255 * style.BorderOpacityPercent / 100d),
+                ColorTranslator.FromHtml(style.BorderColor)),
+            _selectedNodes.Contains(node.Id) ? 3f : (float)style.BorderWidth);
+        using var shape = BlockGeometry.Outline(area, style.Shape);
+        g.FillPath(fill, shape);
+        var state = g.Save();
+        g.SetClip(shape);
         g.FillRectangle(header, area.X, area.Y, area.Width, Math.Min(34, area.Height));
-        g.DrawRectangle(outline, area);
+        g.Restore(state);
+        g.DrawPath(outline, shape);
         using var titleFont = new Font(Font.FontFamily, 10.5f, FontStyle.Bold);
         using var titleBrush = new SolidBrush(Color.FromArgb(35, 50, 70));
         using var format = new StringFormat { Trimming = StringTrimming.EllipsisCharacter,
@@ -2502,7 +2671,7 @@ internal sealed class GraphCanvas : Control
         }
         var world = ToWorld(e.Location);
         var hit = Project.Nodes.LastOrDefault(n => n.Kind != "Description" &&
-            new Rectangle(n.X - 8, n.Y, BlockCatalog.Width + 16, BlockCatalog.Height(n)).Contains(world));
+            new Rectangle(n.X - 12, n.Y - 12, BlockCatalog.Width + 24, BlockCatalog.Height(n) + 24).Contains(world));
         if (hit == null && e.Button == MouseButtons.Left && HitLink(world) is { } selectedLink)
         {
             SelectLink(selectedLink.Source, selectedLink.Port, selectedLink.Target);
@@ -2718,20 +2887,11 @@ internal sealed class GraphCanvas : Control
                 if (source.Link(ports[i]) is not Guid targetId) continue;
                 var target = Project.Nodes.FirstOrDefault(n => n.Id == targetId);
                 if (target == null || target.Kind == "Description") continue;
-                var a = OutputPoint(source, i);
-                var d = InputPoint(target);
-                var b = new Point(a.X + 70, a.Y);
-                var c = new Point(d.X - 70, d.Y);
-                var previous = a;
-                for (var step = 1; step <= 30; step++)
+                var route = GraphLinkRouter.Route(source, i, target, Project.Nodes);
+                for (var step = 1; step < route.Length; step++)
                 {
-                    var t = step / 30.0;
-                    var x = Math.Pow(1 - t, 3) * a.X + 3 * Math.Pow(1 - t, 2) * t * b.X + 3 * (1 - t) * t * t * c.X + t * t * t * d.X;
-                    var y = Math.Pow(1 - t, 3) * a.Y + 3 * Math.Pow(1 - t, 2) * t * b.Y + 3 * (1 - t) * t * t * c.Y + t * t * t * d.Y;
-                    var current = new Point((int)Math.Round(x), (int)Math.Round(y));
-                    var distance = SegmentDistance(point, previous, current);
+                    var distance = SegmentDistance(point, route[step - 1], route[step]);
                     if (distance < best) { best = distance; nearest = (source, ports[i], target); }
-                    previous = current;
                 }
             }
         }
@@ -2748,8 +2908,8 @@ internal sealed class GraphCanvas : Control
         return Distance(point, projection);
     }
 
-    private static Point InputPoint(BlockNode node) => new(node.X + 1, node.Y + 16);
-    private static Point OutputPoint(BlockNode node, int index) => new(node.X + BlockCatalog.Width - 1, node.Y + 55 + 25 * index);
+    private static Point InputPoint(BlockNode node) => GraphLinkRouter.InputPoint(node);
+    private static Point OutputPoint(BlockNode node, int index) => GraphLinkRouter.OutputPoint(node, index);
     private static double Distance(Point a, Point b) => Math.Sqrt((double)(a.X - b.X) * (a.X - b.X) + (double)(a.Y - b.Y) * (a.Y - b.Y));
 }
 

@@ -8,11 +8,11 @@
 
 ![Добровольная поддержка проекта](screenshots/support-ru.png)
 
-Kliker Blocks 1.1.6 — публичная бета визуального редактора сценариев для Windows. При первом запуске, до редактора и демонстрации, выберите английский или русский язык. Выбор сохраняется; сменить язык позже можно в меню «Языки».
+Kliker Blocks 1.1.7 — публичная бета визуального редактора сценариев для Windows. При первом запуске, до редактора и демонстрации, выберите английский или русский язык. Выбор сохраняется; сменить язык позже можно в меню «Языки».
 
 ## Установка
 
-В папке выпуска есть переносимая сборка и один файл `KlikerBlocks-Setup-1.1.6.exe`. Установщик сам выбирает английский или русский язык интерфейса по языку Windows. Можно выбрать папку, значок на рабочем столе, автозапуск и запуск после установки. Автозапуск также переключается в меню «Сценарий → Запускать вместе с Windows». Закрепление на панели задач выполняется через меню Windows у значка работающей программы: установщик не может сделать это автоматически без действия пользователя.
+В папке выпуска есть установщики `KlikerBlocks-Setup-1.1.7-x64.exe` и `KlikerBlocks-Setup-1.1.7-x86.exe`, а также переносимые ZIP-сборки для обеих архитектур. На 64-разрядной Windows выбирайте x64, на 32-разрядной — x86. Установщик сам выбирает английский или русский язык интерфейса по языку Windows. Можно выбрать папку, значок на рабочем столе, автозапуск и запуск после установки. Автозапуск также переключается в меню «Сценарий → Запускать вместе с Windows». Закрепление на панели задач выполняется через меню Windows у значка работающей программы: установщик не может сделать это автоматически без действия пользователя.
 
 В журнале основного и отдельного окна «Перенос строк» меняет только отображение длинных записей. Справка показывает копируемый код графа в отдельной панели. Смешанный текст с вычислениями задаётся как `=[($counter+2)*3]& па \&`: при `counter=1` результат — `9 па &`.
 
@@ -25,6 +25,8 @@ Kliker Blocks 1.1.6 — публичная бета визуального ре�
 ## Редактор и запуск
 
 - Соединяйте блоки на поле или редактируйте тот же граф через переключатель «Код Kliker Blocks».
+- Входная синяя точка и выходные красные точки лежат на контуре блока; положение каждой можно изменить в «Оформлении блока». Там же задаются форма, заливка и окантовка. Вид можно сохранить для одного блока или сделать стандартным для всех блоков данного типа.
+- Связи со стрелкой обходят остальные блоки. Щёлкните связь, чтобы выбрать наконечник, сплошную или прерывистую линию, цвет, прозрачность и толщину. Индивидуальные настройки сохраняются в проекте и в текстовом коде графа.
 - Щёлкните ЛКМ по пустому полю: зелёная точка покажет место вставки следующего блока. Если блоки выделены, этот щелчок перенесёт их в точку с сохранением расстояний. ПКМ по пустому полю снимает выделение и убирает точку. Если точки нет, новые блоки размещаются по очереди.
 - Значок стрелки в редакторе открывает граф в отдельном окне; значок стрелки у журнала открывает в отдельном окне тот же живой журнал.
 - Запускайте, ставьте на паузу и останавливайте сценарий из редактора, компактной панели или трея. Доступны один проход и повторение до остановки.
@@ -61,9 +63,11 @@ Kliker Blocks 1.1.6 — публичная бета визуального ре�
 
 ## English
 
-Kliker Blocks 1.1.6 is a public beta visual scenario editor for Windows. Connect blocks for logic, input, desktop control, files, screenshots, speech and logging, or edit the same graph as code. The interface and built-in Help are available in English and Russian. Each block has a copyable example graph.
+Kliker Blocks 1.1.7 is a public beta visual scenario editor for Windows. Connect blocks for logic, input, desktop control, files, screenshots, speech and logging, or edit the same graph as code. The interface and built-in Help are available in English and Russian. Each block has a copyable example graph.
 
 Download the [latest installer or portable build](https://github.com/Malyshrush/kliker-blocks/releases/latest). Read the [website and searchable block catalog](https://malyshrush.github.io/kliker-blocks-site/), or join the [community discussions](https://github.com/Malyshrush/kliker-blocks-site/discussions) for help, bug reports, ideas and shared graphs.
+
+The release provides separate x64 and x86 installers and self-contained portable ZIPs. Choose x64 for 64-bit Windows and x86 for 32-bit Windows. Both installers offer a destination folder, desktop shortcut, autostart and launch-after-install options.
 
 Translation blocks are optional: the lightweight build does not bundle Python or language models. Configure an external service or install selected offline language pairs after confirmation. See the built-in Help before sending text to a service.
 

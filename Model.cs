@@ -174,6 +174,8 @@ public sealed class BlockNode
     public bool LogActions { get; set; }
     public Dictionary<string, string> Values { get; set; } = [];
     public Dictionary<string, Guid?> Links { get; set; } = [];
+    public Dictionary<string, LinkAppearance> LinkStyles { get; set; } = [];
+    public BlockAppearance? Appearance { get; set; }
 
     public string Value(string key, string fallback = "") => Values.GetValueOrDefault(key, fallback);
     public int Int(string key, int fallback = 0)
@@ -193,7 +195,8 @@ public static class BlockCatalog
     public const int Width = 196;
     public static int Height(BlockNode node) => node.Kind == "Description"
         ? DescriptionGeometry.Bounds(node).Height
-        : 54 + 25 * Math.Max(1, Get(node.Kind).Outputs.Length);
+        : BlockAppearanceManager.Resolve(node).Shape is "Square" or "Circle" or "Diamond"
+            ? Width : 54 + 25 * Math.Max(1, Get(node.Kind).Outputs.Length);
     public static Rectangle Bounds(BlockNode node) => node.Kind == "Description"
         ? DescriptionGeometry.Bounds(node)
         : new Rectangle(node.X, node.Y, Width, Height(node));
