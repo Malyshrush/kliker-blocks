@@ -1,0 +1,52 @@
+{
+  "Version": 1,
+  "ShowIndicator": true,
+  "UseCustomIndicatorPosition": true,
+  "IndicatorX": 300,
+  "IndicatorY": 18,
+  "IndicatorToggleHotkey": "Ctrl+Shift+O",
+  "IndicatorAppearance": {
+    "Width": 245, "Height": 68, "WindowShape": "Прямоугольник", "SymbolSize": 24, "Symbol": "Квадрат",
+    "ShowTitle": true, "ShowDetail": true,
+    "RunningTitle": "СЦЕНАРИЙ B", "ActiveTitle": "B: КОНТРОЛЬ", "InactiveTitle": "B: ОЖИДАНИЕ",
+    "BackgroundColor": "#142D39", "RunningColor": "#47AFFF", "ActiveColor": "#00D2AA", "InactiveColor": "#FFBA49", "ImagePath": ""
+  },
+  "Nodes": [
+    {
+      "Id": "c03e5c38-43ec-4866-a8ab-b1274869e401",
+      "Kind": "Start",
+      "X": 110,
+      "Y": 130,
+      "Values": {},
+      "Links": { "Далее": "c03e5c38-43ec-4866-a8ab-b1274869e402" }
+    },
+    {
+      "Id": "c03e5c38-43ec-4866-a8ab-b1274869e402",
+      "Kind": "WatchCursor",
+      "X": 390,
+      "Y": 130,
+      "Values": {
+        "ActivationMode": "Переключатель",
+        "ActivationKey": "F8",
+        "RequiredHold": "Левая кнопка мыши",
+        "RequiredKey": "SHIFT",
+        "Anchor": "Центр монитора",
+        "AnchorX": "0",
+        "AnchorY": "0",
+        "ThresholdPx": "3",
+        "PollMs": "10",
+        "CooldownMs": "60",
+        "DurationMs": "0",
+        "TargetMode": "Центр монитора",
+        "TargetX": "0",
+        "TargetY": "0",
+        "OffsetX": "0",
+        "OffsetY": "0"
+      },
+      "Links": { "Далее": null }
+    }
+  ],
+  "Captures": [],
+  "Points": [],
+  "Recordings": []
+}

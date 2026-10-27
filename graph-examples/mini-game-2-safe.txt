@@ -1,0 +1,73 @@
+# Kliker Blocks GRAPH 1
+block start Start 80 100
+  link "Далее" -> intro
+end
+
+block intro Log 320 100
+  trace true
+  value "Text" = "Игра «Сейф». Выберите дверь, ключ и придумайте кодовое слово. Итог зависит от всех трёх ответов."
+  link "Далее" -> door
+end
+
+block door RadioDialog 560 100
+  trace true
+  value "Message" = "За какой дверью может быть сейф? Подсказка: ищите комнату с охраной."
+  value "Options" = "Кухня\nКомната охраны\nБалкон"
+  value "Result" = "door"
+  link "Далее" -> key
+end
+
+block key RadioDialog 800 100
+  trace true
+  value "Message" = "Какой ключ возьмёте? Подсказка: сейф металлический."
+  value "Options" = "Стальной\nБумажный\nДеревянный"
+  value "Result" = "key_choice"
+  link "Далее" -> word
+end
+
+block word InputDialog 1040 100
+  trace true
+  value "Message" = "Придумайте кодовое слово длиной не меньше пяти символов."
+  value "Default" = ""
+  value "DelaySeconds" = "0"
+  value "Result" = "code_word"
+  link "Далее" -> points
+end
+
+block points SetVariable 1280 100
+  trace true
+  value "Name" = "points"
+  value "Value" = "=($door==2)*3+($key_choice==1)*2+(strlen($code_word)>=5)*2"
+  link "Далее" -> verdict
+end
+
+block verdict Log 1520 100
+  trace true
+  value "Text" = "=[if $points==7 then \"Сейф открыт! Вы нашли все подсказки.\" else_if $points>=5 then \"Почти получилось: проверьте кодовое слово.\" else_if $points>=3 then \"Дверь найдена, но ключ или слово не подошли.\" else \"Сейф остался закрытым.\"] => ${ending}& Очки: ${points}/7. Длина кодового слова: &[strlen($code_word)]"
+  link "Далее" -> success
+end
+
+block success IfExpression 1760 100
+  trace true
+  value "Expression" = "=$points==7"
+  link "Да" -> win
+  link "Нет" -> lose
+end
+
+block win HintPopup 2000 40
+  trace true
+  value "Title" = "Сейф открыт"
+  value "Message" = "${ending} Результат: ${points}/7."
+  link "Далее" -> stop
+end
+
+block lose HintPopup 2000 180
+  trace true
+  value "Title" = "Попробуйте снова"
+  value "Message" = "${ending} Результат: ${points}/7."
+  link "Далее" -> stop
+end
+
+block stop Stop 2240 100
+  trace true
+end

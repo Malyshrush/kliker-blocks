@@ -1,0 +1,11 @@
+bin/
+bin-test/
+obj/
+publish-v*/
+installer-payload-v*/
+Assets/TranslationRuntime/
+*.user
+*.suo
+.vs/
+*.log
+.env

@@ -1,0 +1,58 @@
+# Kliker Blocks GRAPH 1
+block start Start 80 100
+  link "Далее" -> secret
+end
+
+block secret SetVariable 320 100
+  trace true
+  value "Name" = "secret"
+  value "Value" = "=rnd(1,5)"
+  link "Далее" -> guess
+end
+
+block guess RadioDialog 560 100
+  trace true
+  value "Message" = "Я загадал число от 1 до 5. Ваше предположение?"
+  value "Options" = "1\n2\n3\n4\n5"
+  value "Result" = "guess"
+  link "Далее" -> stake
+end
+
+block stake RadioDialog 800 100
+  trace true
+  value "Message" = "Сколько очков поставите на свой ответ?"
+  value "Options" = "1 очко\n2 очка\n3 очка"
+  value "Result" = "stake"
+  link "Далее" -> distance
+end
+
+block distance SetVariable 1040 100
+  trace true
+  value "Name" = "distance"
+  value "Value" = "=abs($guess-$secret)"
+  link "Далее" -> reward
+end
+
+block reward SetVariable 1280 100
+  trace true
+  value "Name" = "reward"
+  value "Value" = "=[if $guess==0 then 0 else_if $stake==0 then 0 else_if $distance==0 then $stake*3 else 0-$stake]"
+  link "Далее" -> result
+end
+
+block result Log 1520 100
+  trace true
+  value "Text" = "=[if $guess==0 then \"Вы не выбрали число.\" else_if $distance==0 then \"Точное попадание!\" else_if $distance==1 then \"Очень близко!\" else \"На этот раз не угадали.\"] => ${outcome}& Было загадано ${secret}; ваш ответ: ${guess}; расстояние: ${distance}; изменение очков: ${reward}."
+  link "Далее" -> popup
+end
+
+block popup HintPopup 1760 100
+  trace true
+  value "Title" = "Угадай число"
+  value "Message" = "${outcome} Число: ${secret}. Очки: ${reward}."
+  link "Далее" -> stop
+end
+
+block stop Stop 2000 100
+  trace true
+end

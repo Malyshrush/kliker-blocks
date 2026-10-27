@@ -1,0 +1,25 @@
+{
+  "Version": 1,
+  "RunMode": "Повторять до остановки",
+  "CycleDelayMs": 30,
+  "Nodes": [
+    {
+      "Id": "f31cf3c1-b73e-4394-9da3-608eb5240001",
+      "Kind": "Start", "X": 100, "Y": 160,
+      "Values": {}, "Links": { "Далее": "f31cf3c1-b73e-4394-9da3-608eb5240002" }
+    },
+    {
+      "Id": "f31cf3c1-b73e-4394-9da3-608eb5240002",
+      "Kind": "IfKeyDown", "X": 350, "Y": 160,
+      "Values": { "Key": "F10", "Mode": "Пока удерживается" },
+      "Links": { "Да": "f31cf3c1-b73e-4394-9da3-608eb5240003", "Нет": null }
+    },
+    {
+      "Id": "f31cf3c1-b73e-4394-9da3-608eb5240003",
+      "Kind": "MoveRelative", "X": 620, "Y": 160,
+      "Values": { "DeltaX": "0", "DeltaY": "2" },
+      "Links": { "Далее": null }
+    }
+  ],
+  "Captures": [], "Points": [], "Recordings": []
+}

@@ -1,0 +1,25 @@
+{
+  "Version": 1,
+  "RunMode": "Повторять до остановки",
+  "CycleDelayMs": 30,
+  "Nodes": [
+    {
+      "Id": "ec2a22d9-9204-4ff7-b322-96ad0af30001",
+      "Kind": "Start", "X": 100, "Y": 160,
+      "Values": {}, "Links": { "Далее": "ec2a22d9-9204-4ff7-b322-96ad0af30002" }
+    },
+    {
+      "Id": "ec2a22d9-9204-4ff7-b322-96ad0af30002",
+      "Kind": "IfKeyDown", "X": 360, "Y": 160,
+      "Values": { "Key": "F8", "Mode": "Пока удерживается" },
+      "Links": { "Да": "ec2a22d9-9204-4ff7-b322-96ad0af30003", "Нет": null }
+    },
+    {
+      "Id": "ec2a22d9-9204-4ff7-b322-96ad0af30003",
+      "Kind": "Log", "X": 630, "Y": 160,
+      "Values": { "Text": "F8 удерживается — проход выполнен" },
+      "Links": { "Далее": null }
+    }
+  ],
+  "Captures": [], "Points": [], "Recordings": []
+}

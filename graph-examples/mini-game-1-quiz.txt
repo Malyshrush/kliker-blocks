@@ -1,0 +1,68 @@
+# Kliker Blocks GRAPH 1
+block start Start 80 100
+  link "Далее" -> name
+end
+
+block name InputDialog 320 100
+  trace true
+  value "Message" = "Как к вам обращаться?"
+  value "Default" = ""
+  value "DelaySeconds" = "0"
+  value "Result" = "player"
+  link "Далее" -> display
+end
+
+block display SetVariable 560 100
+  trace true
+  value "Name" = "player_name"
+  value "Value" = "=[if strlen($player)==0 then \"Игрок\" else $player]"
+  link "Далее" -> q1
+end
+
+block q1 RadioDialog 800 100
+  trace true
+  value "Message" = "${player_name}, сколько будет 2 + 3?"
+  value "Options" = "4\n5\n6"
+  value "Result" = "answer1"
+  link "Далее" -> q2
+end
+
+block q2 RadioDialog 1040 100
+  trace true
+  value "Message" = "Какую планету называют красной?"
+  value "Options" = "Земля\nВенера\nМарс"
+  value "Result" = "answer2"
+  link "Далее" -> q3
+end
+
+block q3 RadioDialog 1280 100
+  trace true
+  value "Message" = "Сколько секунд в минуте?"
+  value "Options" = "60\n100\n24"
+  value "Result" = "answer3"
+  link "Далее" -> score
+end
+
+block score SetVariable 1520 100
+  trace true
+  value "Name" = "score"
+  value "Value" = "=($answer1==2)+($answer2==3)+($answer3==1)"
+  link "Далее" -> result
+end
+
+block result Log 1760 100
+  trace true
+  value "Text" = "=[if $score==3 then \"Блестяще! Все ответы верны.\" else_if $score==2 then \"Хорошо: два верных ответа.\" else_if $score==1 then \"Один верный ответ. Попробуйте ещё.\" else \"Верных ответов пока нет.\"] => ${verdict}& ${player_name}, ваш счёт: ${score}/3."
+  link "Далее" -> popup
+end
+
+block popup HintPopup 2000 100
+  trace true
+  value "Title" = "Мини-игра: викторина"
+  value "Message" = "${verdict} Счёт: ${score}/3."
+  link "Далее" -> stop
+end
+
+block stop Stop 2240 100
+  trace true
+end

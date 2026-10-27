@@ -1,0 +1,41 @@
+{
+  "Version": 1,
+  "Nodes": [
+    {
+      "Id": "8f8c42dc-214c-4884-a108-83a1a43f6201",
+      "Kind": "Start",
+      "X": 110,
+      "Y": 130,
+      "Values": {},
+      "Links": { "Далее": "8f8c42dc-214c-4884-a108-83a1a43f6202" }
+    },
+    {
+      "Id": "8f8c42dc-214c-4884-a108-83a1a43f6202",
+      "Kind": "WatchCursor",
+      "X": 390,
+      "Y": 130,
+      "Values": {
+        "Anchor": "Центр монитора",
+        "AnchorX": "0",
+        "AnchorY": "0",
+        "ThresholdPx": "3",
+        "PollMs": "10",
+        "CooldownMs": "60",
+        "DurationMs": "0",
+        "ActivationMode": "Переключатель",
+        "ActivationKey": "F9",
+        "RequiredHold": "Левая кнопка мыши",
+        "RequiredKey": "SHIFT",
+        "TargetMode": "Центр монитора",
+        "TargetX": "0",
+        "TargetY": "0",
+        "OffsetX": "0",
+        "OffsetY": "0"
+      },
+      "Links": { "Далее": null }
+    }
+  ],
+  "Captures": [],
+  "Points": [],
+  "Recordings": []
+}
