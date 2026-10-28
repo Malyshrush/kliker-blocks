@@ -7,13 +7,17 @@ internal static class AutostartSettings
     private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string ValueName = "KlikerBlocks";
 
-    internal static string CommandFor(string executable) => "\"" + executable + "\"";
+    internal static string CommandFor(string executable) => "\"" + executable + "\" --windows-startup";
 
     internal static bool IsEnabled()
     {
         using var key = Registry.CurrentUser.OpenSubKey(RunKey);
-        return string.Equals(key?.GetValue(ValueName) as string,
-            CommandFor(Application.ExecutablePath), StringComparison.OrdinalIgnoreCase);
+        var command = key?.GetValue(ValueName) as string;
+        if (string.Equals(command, CommandFor(Application.ExecutablePath), StringComparison.OrdinalIgnoreCase)) return true;
+        if (!string.Equals(command, "\"" + Application.ExecutablePath + "\"", StringComparison.OrdinalIgnoreCase))
+            return false;
+        SetEnabled(true); // Upgrade an existing Windows startup entry to the scenario-aware command.
+        return true;
     }
 
     internal static void SetEnabled(bool enabled)

@@ -73,7 +73,10 @@ internal sealed class AboutForm : Form
     }
 
     private static string BuildReleases(Copy copy) =>
-        "v1.1.8\r\n" + (UiLanguage.Code == "ru"
+        "v1.1.9\r\n" + (UiLanguage.Code == "ru"
+            ? "Добавлены запуск выбранного сценария при входе в Windows с задержкой и расписания с точностью до секунды. Для каждого задания открывается отдельный экземпляр программы. Тонкие связи легче выбрать: расширена область клика, при наведении видны подсветка и маркер. Проверка обновлений скачивает установщик с GitHub, сверяет SHA-256 и сохраняет резервную копию графа. Файлы .klb по умолчанию хранятся в Документах; доступна проверка совместимости формата."
+            : "Added a selected scenario at Windows sign-in with optional delay and scheduled starts to the second. Each task opens a separate app instance. Thin links are easier to select with a wider click area, hover highlight and midpoint handle. Update check downloads the GitHub installer, verifies SHA-256 and backs up the open graph. New .klb files default to Documents; graph compatibility can be checked.") +
+        "\r\n\r\nv1.1.8\r\n" + (UiLanguage.Code == "ru"
             ? "Добавлены поиск и действия с элементами Windows через UI Automation, ожидание событий окна и файла, запись семантических кликов, точки останова и пошаговая отладка. Блоки HTTP POST и «Поле JSON» расширяют работу с данными. Подпрограмма принимает входы и возвращает выходы. У точек блока задаются форма, размер и заливка, у связей — размер наконечника и отступы изгиба. Подпись «Далее» рядом с выходом скрыта."
             : "Added Windows UI Automation element search and actions, window and file event waits, semantic click recording, breakpoints and step debugging. HTTP POST and JSON field blocks extend data handling. Child scenarios accept inputs and return outputs. Block ports have configurable shape, size and fill; connections have marker size and bend distances. The Next caption beside output ports is hidden.") +
         "\r\n\r\nv1.1.7\r\n" + (UiLanguage.Code == "ru"
@@ -212,7 +215,8 @@ internal sealed class AboutForm : Form
              "Two macro recording modes, screenshot library, variables, arrays, expressions and branching.",
              "Files, INI, clipboard, HTTP, windows, dialogs, sound, speech synthesis and script journal.",
              "Mouse profiles and layers, on-screen scenario indicator, Russian/English UI and optional translation services or downloadable offline models.",
-             "Interactive What I can do graph, offered once on first launch and replayable from the menu after consent."],
+             "Interactive What I can do graph, offered once on first launch and replayable from the menu after consent.",
+             "Scheduled and sign-in scenario starts, GitHub update checks, graph backups and compatibility checks."],
             "Available blocks", "Select Help for detailed descriptions, restrictions and examples.",
             "Fixed the demo: Notepad types at a controlled pace, verifies the copied text and corrects missed characters via clipboard. The demo, Notepad and question are laid out side by side when space permits; prompts stay visible.",
             "Added the What I can do demo graph with Notepad, optional local translation and speech, a timed Paint reminder, screenshot analysis and a report. First launch shows it once; desktop actions require consent. The graph can be saved and replayed from the menu.",
@@ -284,7 +288,8 @@ internal sealed class AboutForm : Form
              "Два режима записи макросов, библиотека снимков, переменные, массивы, выражения и ветвления.",
              "Файлы, INI, буфер обмена, HTTP, окна, диалоги, звук, озвучивание текста и журнал выполнения.",
              "Профили и слои мыши, экранный индикатор, русский/английский интерфейс и перевод через сервис либо отдельно загружаемые офлайн-модели.",
-             "Интерактивный граф «Что я умею»: предложение один раз при первом запуске и повторный просмотр из меню."],
+             "Интерактивный граф «Что я умею»: предложение один раз при первом запуске и повторный просмотр из меню.",
+             "Запуск сценариев при входе в Windows и по расписанию, проверка обновлений GitHub, резервные копии и проверка совместимости графов."],
             "Доступные блоки", "Подробные описания, ограничения и примеры — в справке.",
             "Исправлена демонстрация: Блокнот печатает с контролируемой скоростью, сверяет скопированный текст и исправляет пропущенные символы через буфер обмена. Окна располагаются рядом, когда хватает места; вопрос остаётся видимым.",
             "Добавлен граф «Что я умею»: Блокнот, необязательный локальный перевод и голос, напоминание в Paint по таймеру, снимок и отчёт. При первом запуске показывается один раз; действия с рабочим столом требуют согласия. Граф можно сохранить и повторно открыть из меню.",

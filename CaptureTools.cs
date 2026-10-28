@@ -16,6 +16,10 @@ internal sealed class AppSettings
     public string ArgosPythonPath { get; set; } = "Встроенный";
     public string TranslationEndpoint { get; set; } = "http://127.0.0.1:5000/translate";
     public Dictionary<string, BlockAppearance> BlockAppearanceDefaults { get; set; } = [];
+    public bool StartupScenarioEnabled { get; set; }
+    public string StartupScenarioPath { get; set; } = "";
+    public int StartupScenarioDelaySeconds { get; set; }
+    public List<ScenarioSchedule> ScenarioSchedules { get; set; } = [];
 
     private static string FilePath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "KLIKER Blocks", "settings.json");
@@ -86,7 +90,12 @@ internal sealed class HotkeySettingsForm : Form
             InitialLanguageChosen = settings.InitialLanguageChosen,
             JournalWordWrap = settings.JournalWordWrap,
             ArgosPythonPath = settings.ArgosPythonPath,
-            TranslationEndpoint = settings.TranslationEndpoint
+            TranslationEndpoint = settings.TranslationEndpoint,
+            StartupScenarioEnabled = settings.StartupScenarioEnabled,
+            StartupScenarioPath = settings.StartupScenarioPath,
+            StartupScenarioDelaySeconds = settings.StartupScenarioDelaySeconds,
+            ScenarioSchedules = settings.ScenarioSchedules,
+            BlockAppearanceDefaults = settings.BlockAppearanceDefaults
         };
         Text = "Горячие клавиши и снимки";
         Width = 450;

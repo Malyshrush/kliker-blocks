@@ -10,11 +10,38 @@ internal static class Program
             SelfTest.Run();
             return;
         }
+        if (args.Contains("--scheduler-smoke"))
+        {
+            UiLanguage.Configure("en");
+            var scenario = Path.Combine(Path.GetTempPath(), "KlikerBlocks-schedule-smoke-" + Guid.NewGuid().ToString("N") + ".klb");
+            File.WriteAllText(scenario, System.Text.Json.JsonSerializer.Serialize(ProjectModel.CreateSample()));
+            var schedule = new ScenarioSchedule { ProjectPath = scenario,
+                StartLocal = DateTime.Now.AddDays(1), Repeat = "Once" };
+            try
+            {
+                ScenarioScheduling.Register(schedule, Application.ExecutablePath);
+                Console.WriteLine("Scheduled task registered: " + ScenarioScheduling.TaskName(schedule.Id));
+            }
+            finally
+            {
+                try { ScenarioScheduling.Delete(schedule.Id); }
+                finally { File.Delete(scenario); }
+            }
+            Console.WriteLine("Scheduled task removed.");
+            return;
+        }
         if (args.Contains("--help-preview"))
         {
             ApplicationConfiguration.Initialize();
             UiLanguage.Configure("ru");
             Application.Run(new HelpForm("ChoiceDialog"));
+            return;
+        }
+        if (args.Contains("--automation-preview"))
+        {
+            ApplicationConfiguration.Initialize();
+            UiLanguage.Configure("ru");
+            Application.Run(new ScenarioAutomationForm(new AppSettings()));
             return;
         }
         if (args.Contains("--support-preview"))
@@ -67,6 +94,7 @@ internal static class Program
         if (args.Length == 2 && args[0] == "--export-help-en")
         {
             var titles = new[] { "Общие сведения", "Панель, пауза и трей", "Запуск и остановка",
+                "Автозапуск, расписание и обновления", "Выделение тонких связей",
                 "Демонстрация Что я умею", "Окна и точность демонстрации", "Визуальные блоки и связи",
                 "Текстовый код Kliker Blocks", "Переменные и массивы", "Журнал и запись в файл",
                 "Снимки и образы", "Запись макросов", "Слежение за курсором",
@@ -123,6 +151,7 @@ internal static class Program
         Application.Idle += (_, _) => UiLanguage.ApplyToOpenForms();
         LanguageSession? session = null;
         var capabilitiesInitialized = false;
+        var launchHandled = false;
         while (true)
         {
             var settings = AppSettings.Load();
@@ -142,13 +171,16 @@ internal static class Program
                 continue; // Recreate the application UI from the saved language before showing any graph.
             }
             UiLanguage.Configure(settings.UiLanguageCode);
+            var launch = launchHandled ? null : ScenarioScheduling.Resolve(args, settings);
+            if (!launchHandled && args.Contains("--scheduled-run") && launch is null) return;
             if (!capabilitiesInitialized)
             {
                 ComputerCapabilities.Initialize();
                 capabilitiesInitialized = true;
             }
-            using var form = new MainForm(session);
+            using var form = new MainForm(session, launch: launch);
             Application.Run(form);
+            launchHandled = true;
             session = form.PendingLanguageSession;
             if (session is null) break;
         }

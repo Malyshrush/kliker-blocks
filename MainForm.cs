@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Drawing.Drawing2D;
 using System.Text.Json;
+using System.Diagnostics;
 
 namespace KlikerBlocks;
 
@@ -40,6 +41,7 @@ internal sealed class MainForm : Form
     private ToolStripMenuItem? _trayStopItem;
     private bool _exitRequested;
     private readonly bool _uiPreview;
+    private readonly ScenarioLaunchRequest? _launch;
     public LanguageSession? PendingLanguageSession { get; private set; }
     private Runner? _runner;
     private DebugMonitorForm? _debugWindow;
@@ -73,6 +75,9 @@ internal sealed class MainForm : Form
     private readonly ToolStripMenuItem _showLogItem = new("Показать журнал") { Checked = true };
     private readonly ToolStripMenuItem _runModeItem = new("Режим выполнения: один проход…");
     private readonly ToolStripMenuItem _autostartItem = new("Запускать вместе с Windows");
+    private readonly ToolStripMenuItem _updateItem = new("Проверить обновления…");
+    private readonly ToolStripMenuItem _updateBadge = new() { Visible = false, Tag = "featured" };
+    private AvailableUpdate? _availableUpdate;
     private CancellationTokenSource? _cancel;
     private BlockNode? _selected;
     private string? _file;
@@ -94,8 +99,10 @@ internal sealed class MainForm : Form
     private readonly Dictionary<Guid, string> _conditionLabels = [];
     private int _runVersion;
 
-    public MainForm(LanguageSession? session = null, bool uiPreview = false)
+    public MainForm(LanguageSession? session = null, bool uiPreview = false,
+        ScenarioLaunchRequest? launch = null)
     {
+        _launch = launch;
         _uiPreview = uiPreview;
         if (session is not null) { _project = session.Project; _file = session.File; }
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
@@ -126,6 +133,7 @@ internal sealed class MainForm : Form
         AddMenuItem(fileMenu, "Новый", (_, _) => NewProject());
         AddMenuItem(fileMenu, "Открыть…", (_, _) => OpenProject());
         AddMenuItem(fileMenu, "Сохранить…", (_, _) => SaveProject());
+        AddMenuItem(fileMenu, "Проверить совместимость графа…", (_, _) => CheckProjectCompatibility());
         var editorMenu = new ToolStripMenuItem("Редактор");
         AddMenuItem(editorMenu, "Переключить блоки / код Kliker Blocks", (_, _) => SwitchEditorView(!_codeViewActive));
         AddMenuItem(editorMenu, "Копировать блоки  Ctrl+C", (_, _) => CopyBlocks());
@@ -180,6 +188,7 @@ internal sealed class MainForm : Form
         _autostartItem.Click += (_, _) => ToggleAutostart();
         scenarioMenu.DropDownItems.Add(new ToolStripSeparator());
         scenarioMenu.DropDownItems.Add(_autostartItem);
+        AddMenuItem(scenarioMenu, "Автозапуск и расписание сценариев…", (_, _) => ConfigureScenarioAutomation());
         var mouseMenu = new ToolStripMenuItem("Назначения мыши");
         AddMenuItem(mouseMenu, "Профили, слои и кнопки…", (_, _) => ConfigureMouseMappings());
         _mouseEnabledItem = new ToolStripMenuItem("Включить назначения") { CheckOnClick = true };
@@ -205,6 +214,9 @@ internal sealed class MainForm : Form
         AddMenuItem(helpMenu, "Справка Kliker Blocks и коды клавиш…", (_, _) => new HelpForm(_selected?.Kind).Show(this));
         AddMenuItem(helpMenu, "Полная таблица кодов клавиш VK…", (_, _) => new VirtualKeyHelpForm().Show(this));
         AddMenuItem(helpMenu, "Сайт и сообщество Kliker Blocks…", (_, _) => WebsiteLinks.Open(this));
+        _updateItem.Click += async (_, _) => await CheckForUpdates(true);
+        helpMenu.DropDownItems.Add(_updateItem);
+        _updateBadge.Click += async (_, _) => await CheckForUpdates(true);
         AddMenuItem(helpMenu, "Поддержать проект", (_, _) => new SupportForm().Show(this));
         AddMenuItem(helpMenu, "О программе…", (_, _) => new AboutForm().Show(this));
         var showcaseMenu = new ToolStripMenuItem(UiLanguage.T("Что я умею")) { Tag = "featured" };
@@ -213,7 +225,7 @@ internal sealed class MainForm : Form
         websiteMenu.Click += (_, _) => WebsiteLinks.Open(this);
         var supportMenu = new ToolStripMenuItem(UiLanguage.T("Поддержать проект"));
         supportMenu.Click += (_, _) => new SupportForm().Show(this);
-        menu.Items.AddRange([fileMenu, editorMenu, blocksMenu, captureMenu, macroMenu, scenarioMenu, mouseMenu, languagesMenu, showcaseMenu, websiteMenu, supportMenu, helpMenu]);
+        menu.Items.AddRange([fileMenu, editorMenu, blocksMenu, captureMenu, macroMenu, scenarioMenu, mouseMenu, languagesMenu, showcaseMenu, websiteMenu, supportMenu, _updateBadge, helpMenu]);
         foreach (ToolStripMenuItem item in menu.Items)
         {
             item.Padding = new Padding(9, 5, 9, 5);
@@ -410,7 +422,14 @@ internal sealed class MainForm : Form
         logPanel.Controls.Add(_log, 0, 1);
         if (!_uiPreview) InitializeTray();
         UiLanguage.ApplyTo(this);
-        if (!_uiPreview) Shown += (_, _) => BeginInvoke((Action)TryFirstShowcase);
+        if (!_uiPreview && _launch is null) Shown += (_, _) => BeginInvoke((Action)TryFirstShowcase);
+        if (!_uiPreview && _launch is null) Shown += async (_, _) => await CheckForUpdates(false);
+        if (_launch is not null) Shown += async (_, _) =>
+        {
+            if (_launch.DelaySeconds > 0) await Task.Delay(TimeSpan.FromSeconds(_launch.DelaySeconds));
+            if (IsDisposed) return;
+            if (TryLoadProjectFromPath(_launch.ProjectPath)) await RunProject();
+        };
         if (session is null)
             AppendLog("Проект готов. Блок «Следить за курсором» настроен на центр текущего монитора.");
         else
@@ -875,6 +894,57 @@ internal sealed class MainForm : Form
             MessageBox.Show(this, UiLanguage.T("Не удалось изменить автозапуск: ") + error.Message,
                 UiLanguage.T("Запускать вместе с Windows"), MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
+    }
+
+    private void ConfigureScenarioAutomation()
+    {
+        using var form = new ScenarioAutomationForm(_settings);
+        form.ShowDialog(this);
+        try { _autostartItem.Checked = AutostartSettings.IsEnabled(); }
+        catch { _autostartItem.Checked = false; }
+    }
+
+    private async Task CheckForUpdates(bool showResult)
+    {
+        try
+        {
+            _updateItem.Enabled = false;
+            _availableUpdate = await AppUpdates.CheckAsync();
+            _updateItem.Text = _availableUpdate is null ? UiLanguage.T("Проверить обновления…") :
+                UiLanguage.Format("Доступна версия {0}…", _availableUpdate.Version);
+            _updateBadge.Visible = _availableUpdate is not null;
+            if (_availableUpdate is not null)
+                _updateBadge.Text = UiLanguage.Format("⬇ Версия {0}", _availableUpdate.Version);
+            if (!showResult || IsDisposed) return;
+            if (_availableUpdate is null)
+            {
+                MessageBox.Show(this, UiLanguage.T("У вас актуальная версия Kliker Blocks."),
+                    UiLanguage.T("Проверка обновлений"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            if (_cancel is not null)
+            {
+                MessageBox.Show(this, UiLanguage.T("Остановите сценарий перед обновлением."),
+                    UiLanguage.T("Обновление Kliker Blocks"));
+                return;
+            }
+            using var dialog = new UpdateDownloadForm(_availableUpdate);
+            if (dialog.ShowDialog(this) != DialogResult.OK || dialog.InstallerPath is null) return;
+            var backup = AppUpdates.BackupGraph(_project, _file, _codeDirty ? _graphCode.Text : null);
+            AppendLog(UiLanguage.Format("Резервная копия графа: {0}", backup));
+            Process.Start(new ProcessStartInfo(dialog.InstallerPath)
+            {
+                UseShellExecute = true,
+                Arguments = "/CLOSEAPPLICATIONS /RESTARTAPPLICATIONS"
+            });
+            ExitApplication();
+        }
+        catch (Exception error)
+        {
+            if (showResult && !IsDisposed) MessageBox.Show(this, error.Message,
+                UiLanguage.T("Проверка обновлений"), MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally { if (!IsDisposed) _updateItem.Enabled = true; }
     }
 
     private void UpdateInspector()
@@ -1882,7 +1952,7 @@ internal sealed class MainForm : Form
                 return;
             }
         }
-        if (snapshot.Nodes.Any(node => node.Kind == "WatchCursor" &&
+        if (_launch is null && snapshot.Nodes.Any(node => node.Kind == "WatchCursor" &&
                 node.Value("ActivationMode", "Переключатель") == "Сразу") &&
             MessageBox.Show(this,
                 "В сценарии есть блок «Следить за курсором» с активацией «Сразу». Он может перемещать мышь без нажатия F9. Если нужен переключатель F9 + ЛКМ, измените свойства блока перед запуском.\n\nВсё равно запустить?",
@@ -2302,12 +2372,14 @@ internal sealed class MainForm : Form
         if (!TryApplyGraphCode()) return;
         using var dialog = new OpenFileDialog { Filter = "Проекты Kliker Blocks (*.klb)|*.klb|JSON (*.json)|*.json" };
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        TryLoadProjectFromPath(dialog.FileName);
+    }
+
+    private bool TryLoadProjectFromPath(string path)
+    {
         try
         {
-            var project = JsonSerializer.Deserialize<ProjectModel>(File.ReadAllText(dialog.FileName));
-            if (project == null || project.Version != 1 || project.Nodes.Any(n => !BlockCatalog.All.Any(s => s.Kind == n.Kind)) ||
-                project.Nodes.Select(n => n.Id).Distinct().Count() != project.Nodes.Count)
-                throw new InvalidDataException("Файл проекта имеет неподдерживаемый формат.");
+            var project = ProjectCompatibility.Read(path);
             _project = project;
             _project.VariableNamesAsciiOnly = true;
             ApplyMouseMappings();
@@ -2316,22 +2388,27 @@ internal sealed class MainForm : Form
             _indicatorHotkeyRegistered = false;
             RegisterIndicatorHotkey();
             _showIndicatorItem.Checked = _project.ShowIndicator;
-            _file = dialog.FileName;
+            _file = path;
             _graph.Project = _project;
             _graph.ResetView();
             ExpandCanvas();
             _graph.Select(null);
             UpdateWindowTitle();
             if (_codeViewActive) LoadGraphCode();
+            return true;
         }
-        catch (Exception ex) { MessageBox.Show(ex.Message, "Не удалось открыть проект"); }
+        catch (Exception ex) { MessageBox.Show(this, ex.Message, UiLanguage.T("Не удалось открыть проект")); return false; }
     }
 
     private void SaveProject()
     {
         if (!TryApplyGraphCode()) return;
         if (!CheckAsciiNames(_project)) return;
-        using var dialog = new SaveFileDialog { Filter = "Проекты Kliker Blocks (*.klb)|*.klb", DefaultExt = "klb", FileName = _file == null ? "Мой сценарий.klb" : Path.GetFileName(_file) };
+        using var dialog = new SaveFileDialog { Filter = "Проекты Kliker Blocks (*.klb)|*.klb", DefaultExt = "klb",
+            InitialDirectory = _file is null ? ProjectCompatibility.UserProjectDirectory : Path.GetDirectoryName(_file),
+            FileName = _file == null ? "Мой сценарий.klb" : Path.GetFileName(_file) };
+        try { Directory.CreateDirectory(ProjectCompatibility.UserProjectDirectory); }
+        catch (Exception ex) { MessageBox.Show(this, ex.Message, UiLanguage.T("Не удалось сохранить проект")); return; }
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
         try
         {
@@ -2341,6 +2418,22 @@ internal sealed class MainForm : Form
             AppendLog("Проект сохранён: " + _file);
         }
         catch (Exception ex) { MessageBox.Show(ex.Message, "Не удалось сохранить проект"); }
+    }
+
+    private void CheckProjectCompatibility()
+    {
+        using var dialog = new OpenFileDialog { Filter = "Проекты Kliker Blocks (*.klb)|*.klb|JSON (*.json)|*.json" };
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        try
+        {
+            var project = ProjectCompatibility.Read(dialog.FileName);
+            MessageBox.Show(this, UiLanguage.Format(
+                "Граф совместим с этой версией Kliker Blocks. Формат: {0}; блоков: {1}. Файл не изменён.",
+                project.Version, project.Nodes.Count), UiLanguage.T("Проверка совместимости"),
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception error) { MessageBox.Show(this, error.Message,
+            UiLanguage.T("Проверка совместимости"), MessageBoxButtons.OK, MessageBoxIcon.Warning); }
     }
 
     private bool CheckAsciiNames(ProjectModel project)
@@ -2381,6 +2474,7 @@ internal sealed class GraphCanvas : Control
     private Dictionary<Guid, Point> _dragPositions = [];
     private (Guid Id, string Port)? _pending;
     private (Guid Id, string Port)? _selectedLink;
+    private (Guid Id, string Port)? _hoveredLink;
     private Size _worldSize = new(2200, 1500);
     private float _zoom = 1f;
     private float _panX;
@@ -2571,16 +2665,27 @@ internal sealed class GraphCanvas : Control
                 var route = GraphLinkRouter.Route(source, i, target, Project.Nodes, appearance);
                 if (route.Length < 2) continue;
                 var selected = _selectedLink == (source.Id, ports[i]);
+                var hovered = _hoveredLink == (source.Id, ports[i]);
                 var baseColor = ColorTranslator.FromHtml(appearance.Color);
                 var color = selected ? Color.FromArgb(255, 151, 31)
+                    : hovered ? Color.FromArgb(34, 123, 204)
                     : Color.FromArgb((int)Math.Round(255 * appearance.OpacityPercent / 100d), baseColor);
-                using var pen = new Pen(color, (float)appearance.Thickness + (selected ? 1.5f : 0f))
+                using var pen = new Pen(color, (float)appearance.Thickness + (selected ? 1.5f : hovered ? 1f : 0f))
                 { LineJoin = LineJoin.Round, DashCap = DashCap.Round, DashStyle = appearance.Pattern switch
                     { "Dash" => DashStyle.Dash, "Dot" => DashStyle.Dot,
                       "DashDot" => DashStyle.DashDot, "DashDotDot" => DashStyle.DashDotDot,
                       _ => DashStyle.Solid } };
                 g.DrawLines(pen, route);
                 DrawEndDecoration(g, color, route[^2], route[^1], appearance.End, appearance.EndSize);
+                if (hovered)
+                {
+                    var center = LinkSelectionGeometry.Midpoint(route);
+                    var radius = 6f / _zoom;
+                    using var dot = new SolidBrush(Color.FromArgb(34, 123, 204));
+                    using var ring = new Pen(Color.White, 2f / _zoom);
+                    g.FillEllipse(dot, center.X - radius, center.Y - radius, radius * 2, radius * 2);
+                    g.DrawEllipse(ring, center.X - radius, center.Y - radius, radius * 2, radius * 2);
+                }
             }
         }
 
@@ -2909,14 +3014,28 @@ internal sealed class GraphCanvas : Control
         }
         if (_dragging == null)
         {
-            var grip = HitDescription(ToWorld(e.Location), out var resize);
-            Cursor = resize ? Cursors.SizeNWSE : grip != null ? Cursors.SizeAll : Cursors.Default;
+            var hoverWorld = ToWorld(e.Location);
+            var grip = HitDescription(hoverWorld, out var resize);
+            var node = Project.Nodes.LastOrDefault(n => n.Kind != "Description" &&
+                new Rectangle(n.X - 12, n.Y - 12, BlockCatalog.Width + 24, BlockCatalog.Height(n) + 24).Contains(hoverWorld));
+            var link = grip == null && node == null ? HitLink(hoverWorld) : null;
+            var next = link is { } found ? (found.Source.Id, found.Port) : ((Guid Id, string Port)?)null;
+            if (_hoveredLink != next) { _hoveredLink = next; Invalidate(); }
+            Cursor = resize ? Cursors.SizeNWSE : grip != null ? Cursors.SizeAll : link != null ? Cursors.Hand : Cursors.Default;
             return;
         }
         var world = ToWorld(e.Location);
         var dx = world.X - _dragStartWorld.X;
         var dy = world.Y - _dragStartWorld.Y;
         MoveSelectedFrom(_dragPositions, dx, dy);
+    }
+
+    protected override void OnMouseLeave(EventArgs e)
+    {
+        base.OnMouseLeave(e);
+        if (_hoveredLink is null) return;
+        _hoveredLink = null;
+        Invalidate();
     }
 
     protected override void OnMouseUp(MouseEventArgs e)
@@ -2989,7 +3108,7 @@ internal sealed class GraphCanvas : Control
     private (BlockNode Source, string Port, BlockNode Target)? HitLink(Point point)
     {
         (BlockNode Source, string Port, BlockNode Target)? nearest = null;
-        double best = Math.Max(7, 8 / _zoom);
+        double best = double.PositiveInfinity;
         foreach (var source in Project.Nodes)
         {
             var ports = BlockCatalog.Get(source.Kind).Outputs;
@@ -3000,24 +3119,20 @@ internal sealed class GraphCanvas : Control
                 if (target == null || target.Kind == "Description") continue;
                 var route = GraphLinkRouter.Route(source, i, target, Project.Nodes,
                     source.LinkStyles.GetValueOrDefault(ports[i]));
+                var thickness = source.LinkStyles.GetValueOrDefault(ports[i])?.Thickness ?? 2;
+                var radius = LinkSelectionGeometry.HitRadius(_zoom, (float)thickness);
                 for (var step = 1; step < route.Length; step++)
                 {
-                    var distance = SegmentDistance(point, route[step - 1], route[step]);
-                    if (distance < best) { best = distance; nearest = (source, ports[i], target); }
+                    var distance = LinkSelectionGeometry.SegmentDistance(point, route[step - 1], route[step]);
+                    if (distance <= radius && distance < best) { best = distance; nearest = (source, ports[i], target); }
                 }
+                var center = LinkSelectionGeometry.Midpoint(route);
+                var markerDistance = Distance(point, Point.Round(center));
+                if (markerDistance <= 14 / _zoom && markerDistance < best)
+                { best = markerDistance; nearest = (source, ports[i], target); }
             }
         }
         return nearest;
-    }
-
-    private static double SegmentDistance(Point point, Point start, Point end)
-    {
-        var dx = end.X - start.X;
-        var dy = end.Y - start.Y;
-        if (dx == 0 && dy == 0) return Distance(point, start);
-        var t = Math.Clamp(((point.X - start.X) * dx + (point.Y - start.Y) * dy) / (double)(dx * dx + dy * dy), 0, 1);
-        var projection = new Point((int)Math.Round(start.X + t * dx), (int)Math.Round(start.Y + t * dy));
-        return Distance(point, projection);
     }
 
     private static Point InputPoint(BlockNode node) => GraphLinkRouter.InputPoint(node);

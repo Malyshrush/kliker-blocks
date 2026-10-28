@@ -1257,11 +1257,7 @@ internal sealed class Runner(ProjectModel project, Action<string> log, Action<in
                     if (!path.EndsWith(".klb", StringComparison.OrdinalIgnoreCase) || !File.Exists(path) ||
                         new FileInfo(path).Length > 10 * 1024 * 1024)
                         throw new InvalidOperationException("Выберите существующий файл сценария .klb размером до 10 МБ.");
-                    var childProject = JsonSerializer.Deserialize<ProjectModel>(await File.ReadAllTextAsync(path, cancel))
-                        ?? throw new InvalidDataException("Пустой файл сценария.");
-                    if (childProject.Version != 1 || childProject.Nodes.Any(n => !BlockCatalog.All.Any(s => s.Kind == n.Kind)) ||
-                        childProject.Nodes.Select(n => n.Id).Distinct().Count() != childProject.Nodes.Count)
-                        throw new InvalidDataException("Файл сценария имеет неподдерживаемый формат.");
+                    var childProject = ProjectCompatibility.Read(path);
                     if (HasReachableCycle(childProject))
                         throw new InvalidOperationException("Вызываемый сценарий содержит бесконечную обратную связь; для повторов используйте настройку блока.");
                     childProject.RunMode = "Один проход";

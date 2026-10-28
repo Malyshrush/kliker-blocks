@@ -36,8 +36,71 @@ internal static class SelfTest
             AppIdentity.TitleFor(new Version(2, 3, 4)) == "Kliker Blocks v2.3.4",
             "main-window title follows the running assembly version");
         Assert(AutostartSettings.CommandFor(@"C:\Program Files\Kliker Blocks\Kliker.Blocks.exe") ==
-            "\"C:\\Program Files\\Kliker Blocks\\Kliker.Blocks.exe\"",
+            "\"C:\\Program Files\\Kliker Blocks\\Kliker.Blocks.exe\" --windows-startup",
             "autostart command quotes executable paths containing spaces");
+        var release119Ui = new[] { "Автозапуск и расписание сценариев…", "При входе в Windows",
+            "Запускать сценарий", "Задержка после входа, секунд", "Запуск по расписанию",
+            "Добавить…", "Изменить…", "Включить / выключить", "Удалить", "Новое расписание",
+            "Дата и время (до секунды)", "Ежедневно", "Проверить обновления…",
+            "Доступна версия {0}…", "⬇ Версия {0}", "Скачать и установить",
+            "Контрольная сумма установщика не совпала.", "Проверить совместимость графа…",
+            "Проверка совместимости", "Граф создан в более новой версии формата ({0}). Обновите Kliker Blocks." };
+        UiLanguage.Configure("en");
+        Assert(release119Ui.All(UiLanguage.Has), "new 1.1.9 controls and errors are localized in English");
+        UiLanguage.Configure("ru");
+        Assert(Math.Abs(LinkSelectionGeometry.HitRadius(1, 1) - 14) < 0.01 &&
+            Math.Abs(LinkSelectionGeometry.HitRadius(2, 1) - 7) < 0.01 &&
+            LinkSelectionGeometry.HitRadius(1, 12) >= 14 &&
+            LinkSelectionGeometry.SegmentDistance(new Point(50, 12), new Point(0, 0), new Point(100, 0)) == 12 &&
+            LinkSelectionGeometry.Midpoint([new Point(0, 0), new Point(100, 0)]).X == 50,
+            "thin links have zoom-aware selection area and a central handle");
+        var linkGraph = ProjectModel.CreateSample();
+        using (var linkCanvas = new GraphCanvas { Project = linkGraph })
+        {
+            var source = linkGraph.Nodes.First(node => node.Kind == "Start");
+            var target = linkGraph.Nodes.First(node => node.Kind == "WatchCursor");
+            var route = GraphLinkRouter.Route(source, 0, target, linkGraph.Nodes, new LinkAppearance());
+            var middle = Point.Round(LinkSelectionGeometry.Midpoint(route));
+            var hit = new Point(middle.X, middle.Y + 10);
+            var selectedLink = false;
+            linkCanvas.LinkSelectionChanged += (_, _, _) => selectedLink = true;
+            typeof(GraphCanvas).GetMethod("OnMouseMove", BindingFlags.NonPublic | BindingFlags.Instance)!
+                .Invoke(linkCanvas, [new MouseEventArgs(MouseButtons.None, 0, hit.X, hit.Y, 0)]);
+            Assert(linkCanvas.Cursor == Cursors.Hand, "thin link shows clickable hover cursor");
+            typeof(GraphCanvas).GetMethod("OnMouseDown", BindingFlags.NonPublic | BindingFlags.Instance)!
+                .Invoke(linkCanvas, [new MouseEventArgs(MouseButtons.Left, 1, hit.X, hit.Y, 0)]);
+            Assert(selectedLink, "thin link selects from the expanded click area");
+        }
+        var scheduleForTest = new ScenarioSchedule { Id = Guid.NewGuid(), ProjectPath = @"C:\\Test\\example.klb",
+            StartLocal = new DateTime(2030, 1, 2, 11, 12, 13), Repeat = "Once" };
+        var taskXml = ScenarioScheduling.BuildTaskXml(scheduleForTest, @"C:\\Program Files\\Kliker Blocks\\Kliker.Blocks.exe");
+        var taskDoc = System.Xml.Linq.XDocument.Parse(taskXml);
+        Assert(taskDoc.Descendants().Any(item => item.Name.LocalName == "StartBoundary" &&
+            item.Value == "2030-01-02T11:12:13") &&
+            taskDoc.Descendants().Any(item => item.Name.LocalName == "Arguments" &&
+            item.Value == "--scheduled-run " + scheduleForTest.Id),
+            "scheduled task preserves seconds and launches a separate scenario instance");
+        using (var releases = JsonDocument.Parse("[{\"draft\":false,\"tag_name\":\"v1.1.9\",\"assets\":[{\"name\":\"KlikerBlocks-Setup-1.1.9-x64.exe\",\"browser_download_url\":\"https://github.com/Malyshrush/kliker-blocks/releases/download/v1.1.9/KlikerBlocks-Setup-1.1.9-x64.exe\",\"size\":2000000,\"digest\":\"sha256:" + new string('a', 64) + "\"}]}]"))
+            Assert(AppUpdates.SelectRelease(releases.RootElement, new Version(1, 1, 8), "x64")?.Version ==
+                new Version(1, 1, 9) &&
+                AppUpdates.SelectRelease(releases.RootElement, new Version(1, 1, 9), "x64") is null,
+                "updater selects only a newer matching-architecture release");
+        var graphPath = Path.Combine(Path.GetTempPath(), "KlikerBlocks-compatibility-" + Guid.NewGuid().ToString("N") + ".klb");
+        try
+        {
+            var original = JsonSerializer.Serialize(ProjectModel.CreateSample());
+            File.WriteAllText(graphPath, original);
+            Assert(ProjectCompatibility.Read(graphPath).Nodes.Count == 2 &&
+                File.ReadAllText(graphPath) == original,
+                "compatibility reader preserves existing graph files");
+            File.WriteAllText(graphPath, "{\"Version\":999,\"Nodes\":[]}");
+            var futureRejected = false;
+            try { ProjectCompatibility.Read(graphPath); }
+            catch (InvalidDataException) { futureRejected = true; }
+            Assert(futureRejected && File.ReadAllText(graphPath).Contains("999"),
+                "future graph schema is rejected without modifying the user's file");
+        }
+        finally { File.Delete(graphPath); }
         using (var languageChoice = new FirstRunLanguageForm())
         {
             languageChoice.Choose("ru");
