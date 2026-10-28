@@ -244,6 +244,7 @@ internal static class WindowTools
     }
 
     public static bool IsForegroundHandle(IntPtr hwnd) => hwnd != IntPtr.Zero && GetForegroundWindow() == hwnd;
+    public static IntPtr ForegroundHandle() => GetForegroundWindow();
 
     public static void Move(IntPtr hwnd, int x, int y, int width, int height)
     {

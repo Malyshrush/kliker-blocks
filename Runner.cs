@@ -21,7 +21,8 @@ internal sealed class Runner(ProjectModel project, Action<string> log, Action<in
     Func<string, string, string, int, CancellationToken, Task<string>>? translateLocal = null,
     Func<string, string, int, int, CancellationToken, Task>? speakText = null,
     Func<string, VariableStore, CancellationToken, Task>? showcaseStep = null,
-    int nestedDepth = 0)
+    int nestedDepth = 0,
+    Action<Guid, IReadOnlyDictionary<string, string>, bool>? debugState = null)
 {
     private sealed class SubReturnSignal : Exception { }
     private readonly Dictionary<Guid, BlockNode> _nodes = project.Nodes.ToDictionary(n => n.Id);
@@ -73,9 +74,24 @@ internal sealed class Runner(ProjectModel project, Action<string> log, Action<in
     private Runner? _childRunner;
     private bool _looping;
     private int _stopRequested;
+    private int _stepRemaining = -1;
+    private long _lastDebugUpdate;
     private Dictionary<string, BlockNode> _subroutines = new(StringComparer.OrdinalIgnoreCase);
 
     public bool IsPauseRequested { get { lock (_pauseSync) return _resumeSignal is not null; } }
+
+    public void StepDebug()
+    {
+        if (_childRunner is not null) _childRunner.StepDebug();
+        else _stepRemaining = 1;
+        SetPaused(false);
+    }
+    public void ContinueDebug()
+    {
+        _stepRemaining = -1;
+        _childRunner?.ContinueDebug();
+        SetPaused(false);
+    }
 
     public void SetPaused(bool paused)
     {
@@ -325,6 +341,18 @@ internal sealed class Runner(ProjectModel project, Action<string> log, Action<in
             if (++steps > 100000) throw new InvalidOperationException("Превышен предел шагов. Проверьте связи между блоками.");
             if (steps % 100 == 0) await Task.Yield();
             if (!_nodes.TryGetValue(id, out var sourceNode)) throw new InvalidOperationException("Связь ведёт на отсутствующий блок.");
+            var debugPause = sourceNode.Breakpoint || _stepRemaining == 0;
+            var debugNow = Environment.TickCount64;
+            if (debugPause || debugNow - _lastDebugUpdate >= 50)
+            {
+                debugState?.Invoke(id, _variables.Snapshot(), debugPause);
+                _lastDebugUpdate = debugNow;
+            }
+            if (debugPause)
+            {
+                SetPaused(true);
+                await PausePointAsync(cancel);
+            }
             using var traceScope = _variables.BeginTrace(sourceNode.LogActions);
             BlockNode? resolvedNode = null;
             try
@@ -667,6 +695,22 @@ internal sealed class Runner(ProjectModel project, Action<string> log, Action<in
                         node.Value("Url"), node.Int("TimeoutMs", 10000), node.Value("Headers", ""), cancel));
                     current = node.Link("Далее");
                     break;
+                case "HttpPost":
+                {
+                    var response = await DataTools.HttpPostAsync(node.Value("Url"), node.Value("Body"),
+                        node.Value("ContentType"), node.Int("TimeoutMs", 10000),
+                        node.Value("Headers"), cancel);
+                    _variables.Set(node.Value("Result"), response.Body);
+                    _variables.Set(node.Value("Status"), response.Status.ToString(
+                        System.Globalization.CultureInfo.InvariantCulture));
+                    current = node.Link("Далее");
+                    break;
+                }
+                case "JsonValue":
+                    _variables.Set(node.Value("Result"), DataTools.JsonValue(
+                        node.Value("Json"), node.Value("Path")));
+                    current = node.Link("Далее");
+                    break;
                 case "TranslateText":
                     _variables.Set(node.Value("Result"), node.Value("Engine", "Argos локально") == "Argos локально"
                         ? await _translateLocal(node.Value("Text"), node.Value("Source"), node.Value("Target"),
@@ -720,6 +764,23 @@ internal sealed class Runner(ProjectModel project, Action<string> log, Action<in
                     await DelayWatchingScopeAsync(Math.Clamp(node.Int("Milliseconds", 500), 0, 3600000), cancel);
                     current = node.Link("Далее");
                     break;
+                case "WaitEvent":
+                {
+                    var timeout = node.Int("TimeoutMs", 30000);
+                    if (timeout is < 100 or > 3600000)
+                        throw new InvalidOperationException("Таймаут события должен быть от 100 до 3600000 мс.");
+                    var observed = node.Value("EventType") switch
+                    {
+                        "Окно появилось" => await EventWaitTools.WindowAsync(node.Value("WindowTitle"), true, timeout, cancel),
+                        "Окно закрылось" => await EventWaitTools.WindowAsync(node.Value("WindowTitle"), false, timeout, cancel),
+                        "Файл изменился" => await EventWaitTools.FileAsync(
+                            ExternalTools.ResolvePath(node.Value("Path"), _baseDirectory), timeout, cancel),
+                        _ => throw new InvalidOperationException("Неизвестный тип ожидаемого события.")
+                    };
+                    traceOutput = observed ? "Событие" : "Таймаут";
+                    current = node.Link(traceOutput);
+                    break;
+                }
                 case "InputGroup":
                 {
                     if (_groupLease.Value is not null)
@@ -1024,6 +1085,52 @@ internal sealed class Runner(ProjectModel project, Action<string> log, Action<in
                     current = node.Link(traceOutput);
                     break;
                 }
+                case "UiWait":
+                {
+                    var selector = new UiElementSelector(node.Value("WindowTitle"),
+                        node.Value("AutomationId"), node.Value("ElementName"), node.Value("ControlType"));
+                    var timeout = node.Int("TimeoutMs", 10000);
+                    if (timeout is < 100 or > 60000)
+                        throw new InvalidOperationException("Таймаут поиска элемента должен быть от 100 до 60000 мс.");
+                    var clock = Stopwatch.StartNew();
+                    var found = false;
+                    do
+                    {
+                        cancel.ThrowIfCancellationRequested();
+                        await PausePointAsync(cancel);
+                        try { found = UiAutomationTools.Find(selector) is not null; }
+                        catch (System.Windows.Automation.ElementNotAvailableException) { found = false; }
+                        catch (System.Runtime.InteropServices.COMException) { found = false; }
+                        if (found || clock.ElapsedMilliseconds >= timeout) break;
+                        await Task.Delay(200, cancel);
+                    } while (true);
+                    traceOutput = found ? "Найден" : "Таймаут";
+                    current = node.Link(traceOutput);
+                    break;
+                }
+                case "UiAction":
+                {
+                    var selector = new UiElementSelector(node.Value("WindowTitle"),
+                        node.Value("AutomationId"), node.Value("ElementName"), node.Value("ControlType"));
+                    try
+                    {
+                        var element = UiAutomationTools.Find(selector) ??
+                            throw new InvalidOperationException("Элемент Windows не найден.");
+                        _variables.Set(node.Value("Result"), UiAutomationTools.Act(
+                            element, node.Value("Action"), node.Value("Text")));
+                        _variables.Set(node.Value("Error"), "");
+                        traceOutput = "Далее";
+                    }
+                    catch (Exception error) when (error is InvalidOperationException or
+                        System.Windows.Automation.ElementNotAvailableException or
+                        System.Runtime.InteropServices.COMException)
+                    {
+                        _variables.Set(node.Value("Error"), error.Message);
+                        traceOutput = "Ошибка";
+                    }
+                    current = node.Link(traceOutput);
+                    break;
+                }
                 case "ActivateWindow":
                     await WithInputAsync(() =>
                     {
@@ -1170,12 +1277,17 @@ internal sealed class Runner(ProjectModel project, Action<string> log, Action<in
                         var child = new Runner(childProject, log, displacement, Path.GetDirectoryName(path), watchStatus,
                             keyState, relativeMove, conditionStatus, null, _clearLog, _showLog, playSound, beep,
                             inputDialog, choiceDialog, messageInbox, selfHandle, radioDialog, hintPopup,
-                            translate, argosPythonPath, translateLocal, speakText, showcaseStep, nestedDepth + 1);
+                            translate, argosPythonPath, translateLocal, speakText, showcaseStep, nestedDepth + 1,
+                            debugState);
+                        foreach (var (name, value) in ParseModulePairs(node.Value("Inputs"), "входы"))
+                            child._variables.Set(name, value);
                         _childRunner = child;
                         try
                         {
                             if (IsPauseRequested) child.SetPaused(true);
                             await child.RunAsync(cancel);
+                            foreach (var (parentName, childName) in ParseModulePairs(node.Value("Outputs"), "выходы"))
+                                _variables.Set(parentName, child._variables.Get(childName));
                         }
                         finally { _childRunner = null; }
                     }
@@ -1317,6 +1429,7 @@ internal sealed class Runner(ProjectModel project, Action<string> log, Action<in
                 log(BlockTrace.Completed(sourceNode, current, traceOutput));
                 log(BlockTrace.Details(sourceNode, node, traceScope.Changes));
             }
+            if (_stepRemaining > 0) _stepRemaining--;
             }
             catch (SubReturnSignal)
             {
@@ -1360,6 +1473,26 @@ internal sealed class Runner(ProjectModel project, Action<string> log, Action<in
         }
         if (Visit(starts[0].Id)) return true;
         return child.Nodes.Where(node => node.Kind == "SubStart").Any(node => Visit(node.Id));
+    }
+
+    internal static IReadOnlyList<(string Name, string Value)> ParseModulePairs(string text, string label)
+    {
+        var result = new List<(string, string)>();
+        foreach (var line in text.Replace("\r\n", "\n").Split('\n'))
+        {
+            if (string.IsNullOrWhiteSpace(line)) continue;
+            var equal = line.IndexOf('=');
+            if (equal <= 0) throw new InvalidOperationException($"Сценарий: неверные {label}; требуется имя=значение.");
+            var name = line[..equal].Trim();
+            var value = line[(equal + 1)..].Trim();
+            if (!VariableNameRules.IsAscii(name) || result.Any(item => item.Item1 == name))
+                throw new InvalidOperationException($"Сценарий: неверное или повторное имя в разделе «{label}»: {name}.");
+            if (label == "выходы" && !VariableNameRules.IsAscii(value))
+                throw new InvalidOperationException("Сценарий: имя дочерней выходной переменной должно быть латинским.");
+            result.Add((name, value));
+            if (result.Count > 100) throw new InvalidOperationException("Не более 100 входов или выходов сценария.");
+        }
+        return result;
     }
 
     private sealed class CycleWatchState(Point anchor, string activationMode, bool activationInitiallyHeld)

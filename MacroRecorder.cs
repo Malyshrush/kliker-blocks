@@ -38,7 +38,8 @@ internal sealed class MacroSetupForm : Form
         var panel = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(16), AutoScroll = true };
         Controls.Add(panel);
         Add(panel, "Имя макроса", _name);
-        _mode.Items.AddRange(["Клики и образы", "Все действия ввода"]);
+        _mode.Items.AddRange(["Клики и образы", "Все действия ввода",
+            UiLanguage.T("Клики по элементам Windows")]);
         _mode.SelectedIndex = 0;
         Add(panel, "Режим записи", _mode);
         _region.Items.AddRange(["Вокруг клика", "Фиксированная область"]);
@@ -76,7 +77,12 @@ internal sealed class MacroSetupForm : Form
             "Полная запись сохраняет все нажатия клавиш, включая возможные пароли. Записывайте только свои действия. Продолжить?",
             "Конфиденциальность", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
         Options.Name = name;
-        Options.Mode = _mode.Text;
+        Options.Mode = _mode.SelectedIndex switch
+        {
+            1 => "Все действия ввода",
+            2 => "Клики по элементам Windows",
+            _ => "Клики и образы"
+        };
         Options.RegionMode = _region.Text;
         Options.Shape = _shape.Text;
         Options.Width = (int)_width.Value;
@@ -269,7 +275,7 @@ internal sealed class MacroRecorder : IDisposable
 
     private void HandleMouse(int message, Point point, uint data)
     {
-        if (_options.Mode == "Клики и образы")
+        if (_options.Mode is "Клики и образы" or "Клики по элементам Windows")
         {
             var button = message switch { 0x0201 => "Левая", 0x0204 => "Правая", 0x0207 => "Средняя", _ => null };
             if (button == null) return;
@@ -277,15 +283,32 @@ internal sealed class MacroRecorder : IDisposable
             entry.Button = button;
             try
             {
-                var area = CaptureArea(point);
-                var asset = CaptureService.Save(area, _options.Shape,
-                    $"{_options.Name}_click_{_events.Count + 1:D3}", _settings, _baseDirectory);
-                _assets.Add(asset);
-                entry.CapturePath = asset.Path;
-                entry.CaptureX = area.X; entry.CaptureY = area.Y;
-                entry.CaptureWidth = area.Width; entry.CaptureHeight = area.Height;
+                if (_options.Mode == "Клики по элементам Windows" && button == "Левая")
+                {
+                    var element = UiAutomationTools.Inspect(point);
+                    if (element.ControlType is "Button" or "MenuItem" or "Hyperlink" or
+                        "ListItem" or "CheckBox" &&
+                        (!string.IsNullOrWhiteSpace(element.AutomationId) ||
+                         !string.IsNullOrWhiteSpace(element.Name)))
+                    {
+                        entry.WindowTitle = element.WindowTitle;
+                        entry.AutomationId = element.AutomationId;
+                        entry.ElementName = element.AutomationId.Length == 0 ? element.Name : "";
+                        entry.ControlType = element.ControlType;
+                    }
+                }
+                else if (_options.Mode == "Клики и образы")
+                {
+                    var area = CaptureArea(point);
+                    var asset = CaptureService.Save(area, _options.Shape,
+                        $"{_options.Name}_click_{_events.Count + 1:D3}", _settings, _baseDirectory);
+                    _assets.Add(asset);
+                    entry.CapturePath = asset.Path;
+                    entry.CaptureX = area.X; entry.CaptureY = area.Y;
+                    entry.CaptureWidth = area.Width; entry.CaptureHeight = area.Height;
+                }
             }
-            catch (Exception error) { _error("Снимок клика не получен: " + error.Message); }
+            catch (Exception error) { _error(UiLanguage.T("Данные клика не получены: ") + error.Message); }
             Add(entry);
             return;
         }

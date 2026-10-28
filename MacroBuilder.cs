@@ -29,7 +29,28 @@ internal static class MacroBuilder
         {
             if (entry.DelayMs > 0)
                 Append("Wait").Values["Milliseconds"] = Math.Clamp(entry.DelayMs, 0, 3_600_000).ToString();
-            if (recording.Mode == "Клики и образы" && entry.Kind == "Click")
+            if (recording.Mode == "Клики по элементам Windows" && entry.Kind == "Click" &&
+                !string.IsNullOrWhiteSpace(entry.WindowTitle) &&
+                (!string.IsNullOrWhiteSpace(entry.AutomationId) || !string.IsNullOrWhiteSpace(entry.ElementName)))
+            {
+                var wait = Append("UiWait");
+                wait.Values["WindowTitle"] = entry.WindowTitle;
+                wait.Values["AutomationId"] = entry.AutomationId;
+                wait.Values["ElementName"] = entry.ElementName;
+                wait.Values["ControlType"] = entry.ControlType;
+                previousOutput = "Найден";
+                var action = Append("UiAction");
+                action.Values["WindowTitle"] = entry.WindowTitle;
+                action.Values["AutomationId"] = entry.AutomationId;
+                action.Values["ElementName"] = entry.ElementName;
+                action.Values["ControlType"] = entry.ControlType;
+                action.Values["Action"] = entry.ControlType switch
+                {
+                    "ListItem" => "Выбрать", "CheckBox" => "Переключить", _ => "Нажать"
+                };
+                continue;
+            }
+            if ((recording.Mode is "Клики и образы" or "Клики по элементам Windows") && entry.Kind == "Click")
             {
                 if (!string.IsNullOrWhiteSpace(entry.CapturePath))
                 {

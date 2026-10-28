@@ -1,4 +1,4 @@
-param([string]$Version = '1.1.7')
+param([string]$Version = '1.1.8')
 $ErrorActionPreference = 'Stop'
 $project = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 $releaseDir = Join-Path $project ('publish-v' + ($Version -replace '\.', ''))
@@ -15,7 +15,7 @@ $tag = "v$Version"
 $names = @(
     "KlikerBlocks-Setup-$Version-x64.exe", "KlikerBlocks-Setup-$Version-x86.exe",
     "KlikerBlocks-Portable-$Version-x64.zip", "KlikerBlocks-Portable-$Version-x86.zip",
-    "RELEASE_NOTES_$Version.md"
+    "RELEASE_NOTES_$Version.md", "editor-ru.png", "help-ru.png", "support-ru.png"
 )
 foreach ($name in $names) {
     $path = Join-Path $releaseDir $name

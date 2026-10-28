@@ -72,6 +72,8 @@ internal static class SelfTest
         TestHelpGraphExamples();
         TestEditorInsertionAndMove();
         TestGraphAppearanceAndRouting();
+        TestNewAutomation();
+        TestUiAutomationLive();
         TestEnglishMainWindow();
         Console.WriteLine("UI and editor tests passed.");
         TestEnglishHelpCoverage();
@@ -1945,12 +1947,17 @@ internal static class SelfTest
                     $"{shape} ports remain on contour");
             }
             middle.Appearance = new BlockAppearance { Shape = "Circle", InputAngle = 135,
-                OutputAngles = new Dictionary<string, int> { ["Далее"] = 315 } };
+                OutputAngles = new Dictionary<string, int> { ["Далее"] = 315 },
+                InputPort = new PortAppearance { Shape = "Diamond", Size = 22,
+                    FillColor = "#123456", FillOpacityPercent = 65 },
+                OutputPorts = new Dictionary<string, PortAppearance> { ["Далее"] = new()
+                    { Shape = "Triangle", Size = 19, FillColor = "#654321" } } };
             start.LinkStyles["Далее"] = new LinkAppearance { End = "Diamond", Pattern = "Dash",
-                Color = "#12AB34", OpacityPercent = 64, Thickness = 3.5m };
+                Color = "#12AB34", OpacityPercent = 64, Thickness = 3.5m,
+                EndSize = 24, ExitDistance = 30, EntryDistance = 20 };
             start.Links["Далее"] = target.Id;
             var nodes = new[] { start, middle, target };
-            var route = GraphLinkRouter.Route(start, 0, target, nodes);
+            var route = GraphLinkRouter.Route(start, 0, target, nodes, start.LinkStyles["Далее"]);
             Assert(route.Length >= 3 && route[0] == GraphLinkRouter.OutputPoint(start, 0) &&
                 route[^1] == GraphLinkRouter.InputPoint(target) &&
                 Enumerable.Range(1, route.Length - 1).All(i =>
@@ -1960,11 +1967,30 @@ internal static class SelfTest
             var code = GraphCodeCodec.Serialize(project);
             var parsed = GraphCodeCodec.Parse(code);
             Assert(parsed[0].LinkStyles["Далее"].End == "Diamond" &&
+                parsed[0].LinkStyles["Далее"].EndSize == 24 &&
+                parsed[0].LinkStyles["Далее"].ExitDistance == 30 &&
                 parsed[1].Appearance?.InputAngle == 135 &&
+                parsed[1].Appearance?.InputPort.Size == 22 &&
+                parsed[1].Appearance?.OutputPorts["Далее"].Shape == "Triangle" &&
                 GraphCodeCodec.Serialize(new ProjectModel { Nodes = parsed }) == code,
                 "block and link appearances survive code round trip");
+            var straightStyle = new LinkAppearance { ExitDistance = 0, EntryDistance = 0 };
+            var direct = GraphLinkRouter.Route(start, 0, target, [start, target], straightStyle);
+            Assert(direct.Length == 2 && direct[0] == GraphLinkRouter.OutputPoint(start, 0) &&
+                direct[1] == GraphLinkRouter.InputPoint(target),
+                "zero bend distances produce a direct connection when unobstructed");
+            var backward = GraphLinkRouter.Route(target, 0, start, [start, target], straightStyle);
+            Assert(backward.Length > 2,
+                "a backward connection avoids running through its own blocks even with zero bend distances");
+            using (var descriptionAppearance = new BlockAppearanceForm(BlockCatalog.Create("Description", 0, 0)))
+                Assert(descriptionAppearance.Appearance.IsValid(),
+                    "appearance editor opens for a description block without connector controls");
+            Assert(DataTools.JsonValue("{\"user\":{\"name\":\"Alex\"},\"items\":[{\"id\":7}]}",
+                "user.name") == "Alex" && DataTools.JsonValue("{\"items\":[{\"id\":7}]}",
+                "items[0].id") == "7", "JSON path resolves nested properties and array indexes");
             var snapshot = BlockClipboard.Copy([middle]);
             Assert(snapshot.Single().Appearance?.Shape == "Circle" &&
+                snapshot.Single().Appearance?.InputPort.Size == 22 &&
                 !ReferenceEquals(snapshot.Single().Appearance, middle.Appearance),
                 "block appearance is copied independently");
             var pasted = BlockClipboard.Paste(snapshot, new Point(900, 900), new ProjectModel());
@@ -1978,7 +2004,9 @@ internal static class SelfTest
                 "per-type default applies to new blocks and local appearance overrides it");
             UiLanguage.Configure("en");
             foreach (var text in new[] { "Оформление блока…", "Форма блока", "Точка на контуре",
-                "Выбрать цвет заливки…", "Оформление связи", "Штриховая", "Стрелка" })
+                "Выбрать цвет заливки…", "Оформление связи", "Штриховая", "Стрелка",
+                "Форма выбранной точки", "Размер выбранной точки (6–36)",
+                "Размер наконечника (4–48)", "Отступ изгиба от входа (0–200)" })
                 Assert(UiLanguage.Has(text) && !UiLanguage.T(text).Any(c => c is >= '\u0400' and <= '\u04FF'),
                     $"English graph appearance control: {text}");
             UiLanguage.Configure("ru");
@@ -1987,6 +2015,97 @@ internal static class SelfTest
         {
             BlockAppearanceManager.Reload(AppSettings.Load());
             UiLanguage.Configure("ru");
+        }
+    }
+
+    private static void TestNewAutomation()
+    {
+        var semantic = new MacroRecording { Mode = "Клики по элементам Windows", Events =
+        [new MacroEvent { Kind = "Click", Button = "Левая", X = 20, Y = 30,
+            WindowTitle = "Test window", AutomationId = "SaveButton", ControlType = "Button" }] };
+        var project = ProjectModel.CreateSample();
+        var built = MacroBuilder.AddToProject(project, semantic);
+        Assert(built.NodesAdded == 2 && project.Nodes.Count(node => node.Kind == "UiWait") == 1 &&
+            project.Nodes.Count(node => node.Kind == "UiAction") == 1 &&
+            project.Nodes.All(node => node.Kind != "Click"),
+            "semantic macro converts a captured click into element wait and action");
+        var fallback = new MacroRecording { Mode = "Клики по элементам Windows", Events =
+            [new MacroEvent { Kind = "Click", Button = "Левая", X = 20, Y = 30 }] };
+        var fallbackProject = ProjectModel.CreateSample();
+        MacroBuilder.AddToProject(fallbackProject, fallback);
+        Assert(fallbackProject.Nodes.Any(node => node.Kind == "Click"),
+            "semantic recorder falls back to coordinates when no element was exposed");
+        Assert(Runner.ParseModulePairs("child_name=hello\nchild_count=2", "входы").Count == 2,
+            "module inputs parse one assignment per line");
+        try
+        {
+            Runner.ParseModulePairs("не_латиница=1", "входы");
+            throw new Exception("Self-test failed: module accepted Unicode variable name");
+        }
+        catch (InvalidOperationException) { }
+        var eventFile = Path.Combine(Path.GetTempPath(), "Kliker-event-" + Guid.NewGuid().ToString("N") + ".txt");
+        try
+        {
+            var awaited = EventWaitTools.FileAsync(eventFile, 3000, CancellationToken.None);
+            File.WriteAllText(eventFile, "changed");
+            Assert(awaited.GetAwaiter().GetResult(), "file change event wakes the scenario");
+        }
+        finally { if (File.Exists(eventFile)) File.Delete(eventFile); }
+        var start = BlockCatalog.Create("Start", 0, 0);
+        var log = BlockCatalog.Create("Log", 200, 0);
+        log.Breakpoint = true;
+        start.Links["Далее"] = log.Id;
+        var stopped = 0;
+        var runner = new Runner(new ProjectModel { Nodes = [start, log] }, _ => { }, (_, _) => { },
+            debugState: (id, _, pause) => { if (id == log.Id && pause) Interlocked.Exchange(ref stopped, 1); });
+        var execution = Task.Run(() => runner.RunAsync(CancellationToken.None));
+        Assert(SpinWait.SpinUntil(() => Volatile.Read(ref stopped) == 1 && runner.IsPauseRequested, 3000) && !execution.IsCompleted,
+            "breakpoint pauses before executing the selected block");
+        runner.StepDebug();
+        execution.GetAwaiter().GetResult();
+        var code = GraphCodeCodec.Serialize(new ProjectModel { Nodes = [start, log] });
+        Assert(GraphCodeCodec.Parse(code)[1].Breakpoint && code.Contains("breakpoint true"),
+            "breakpoint survives graph code round trip");
+    }
+
+    private static void TestUiAutomationLive()
+    {
+        var title = "Kliker UIA smoke " + Guid.NewGuid().ToString("N");
+        using var ready = new ManualResetEventSlim();
+        Form? target = null;
+        Exception? windowError = null;
+        var clicked = 0;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                using var form = new Form { Text = title, Size = new Size(300, 150),
+                    StartPosition = FormStartPosition.Manual, Location = new Point(120, 120) };
+                var button = new Button { Name = "SmokeButton", Text = "Smoke action",
+                    Location = new Point(20, 20), Size = new Size(160, 40) };
+                button.Click += (_, _) => Interlocked.Exchange(ref clicked, 1);
+                form.Controls.Add(button);
+                target = form;
+                form.Shown += (_, _) => ready.Set();
+                Application.Run(form);
+            }
+            catch (Exception error) { windowError = error; ready.Set(); }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        try
+        {
+            Assert(ready.Wait(5000) && windowError is null, "UI Automation smoke window opened");
+            var button = UiAutomationTools.Find(new UiElementSelector(title, "", "Smoke action", "Button"));
+            Assert(button is not null && UiAutomationTools.Act(button, "Нажать", "") == "1" &&
+                SpinWait.SpinUntil(() => Volatile.Read(ref clicked) == 1, 3000),
+                "UI Automation finds and invokes a live Windows control");
+        }
+        finally
+        {
+            if (target is { IsDisposed: false, IsHandleCreated: true })
+                target.BeginInvoke((Action)(() => target.Close()));
+            Assert(thread.Join(5000), "UI Automation smoke window closed");
         }
     }
 
@@ -2641,31 +2760,41 @@ internal static class SelfTest
             var childMessage = BlockCatalog.Create("Log", 200, 0);
             childMessage.Values["Text"] = "child-step";
             childStart.Links["Далее"] = childMessage.Id;
+            var childResult = BlockCatalog.Create("SetVariable", 400, 0);
+            childResult.Values["Name"] = "child_result";
+            childResult.Values["Value"] = "${input_value}";
+            childMessage.Links["Далее"] = childResult.Id;
             var childFile = Path.Combine(folder, "child.klb");
             File.WriteAllText(childFile, JsonSerializer.Serialize(new ProjectModel
             {
-                Nodes = [childStart, childMessage], PlaybackSpeed = 0.5m
+                Nodes = [childStart, childMessage, childResult], PlaybackSpeed = 0.5m
             }));
             var parentStart = BlockCatalog.Create("Start", 0, 0);
             var launch = BlockCatalog.Create("RunScenario", 200, 0);
             launch.Values["Path"] = "child.klb";
             launch.Values["Times"] = "3";
             launch.Values["Speed"] = "5,0";
+            launch.Values["Inputs"] = "input_value=hello";
+            launch.Values["Outputs"] = "parent_result=child_result";
             parentStart.Links["Далее"] = launch.Id;
+            var parentResult = BlockCatalog.Create("Log", 400, 0);
+            parentResult.Values["Text"] = "${parent_result}";
+            launch.Links["Далее"] = parentResult.Id;
             var messages = new List<string>();
-            new Runner(new ProjectModel { Nodes = [parentStart, launch] }, messages.Add, (_, _) => { },
+            new Runner(new ProjectModel { Nodes = [parentStart, launch, parentResult] }, messages.Add, (_, _) => { },
                 folder).RunAsync(CancellationToken.None).GetAwaiter().GetResult();
             Assert(messages.Count(message => message == "child-step") == 3 &&
-                messages.Count(message => message.Contains("Вызов сценария child.klb")) == 3,
-                "saved child scenario runs sequentially with configured repetitions");
+                messages.Count(message => message.Contains("Вызов сценария child.klb")) == 3 &&
+                messages.Contains("hello"),
+                "saved child scenario runs sequentially and exchanges named variables");
             childMessage.Links["Далее"] = childMessage.Id;
             File.WriteAllText(childFile, JsonSerializer.Serialize(new ProjectModel
             {
-                Nodes = [childStart, childMessage]
+                Nodes = [childStart, childMessage, childResult]
             }));
             try
             {
-                new Runner(new ProjectModel { Nodes = [parentStart, launch] }, _ => { }, (_, _) => { },
+                new Runner(new ProjectModel { Nodes = [parentStart, launch, parentResult] }, _ => { }, (_, _) => { },
                     folder).RunAsync(CancellationToken.None).GetAwaiter().GetResult();
                 throw new Exception("Self-test failed: cyclic child scenario was not rejected");
             }

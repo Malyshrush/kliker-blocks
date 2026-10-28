@@ -1,4 +1,4 @@
-param([string]$Version = '1.1.7')
+param([string]$Version = '1.1.8')
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $root = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path

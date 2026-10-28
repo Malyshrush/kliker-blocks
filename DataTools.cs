@@ -183,4 +183,64 @@ internal static class DataTools
         }
         return Encoding.UTF8.GetString(memory.ToArray());
     }
+
+    public static async Task<(string Body, int Status)> HttpPostAsync(string url, string body,
+        string contentType, int timeoutMs, string headers, CancellationToken cancel)
+    {
+        if (Encoding.UTF8.GetByteCount(body) > 1024 * 1024)
+            throw new InvalidOperationException("HTTP-запрос больше 1 МиБ.");
+        if (contentType is not ("application/json" or "text/plain" or "application/x-www-form-urlencoded"))
+            throw new InvalidOperationException("Недопустимый тип содержимого HTTP-запроса.");
+        using var request = CreateHttpRequest(url, headers);
+        request.Method = HttpMethod.Post;
+        request.Content = new StringContent(body, Encoding.UTF8, contentType);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancel);
+        deadline.CancelAfter(Math.Clamp(timeoutMs, 100, 60000));
+        using var response = await Client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token);
+        if (response.Content.Headers.ContentLength > MaxTextBytes)
+            throw new InvalidOperationException("HTTP-ответ больше 8 МиБ.");
+        await using var stream = await response.Content.ReadAsStreamAsync(deadline.Token);
+        using var memory = new MemoryStream();
+        var buffer = new byte[8192];
+        while (true)
+        {
+            var count = await stream.ReadAsync(buffer, deadline.Token);
+            if (count == 0) break;
+            if (memory.Length + count > MaxTextBytes) throw new InvalidOperationException("HTTP-ответ больше 8 МиБ.");
+            memory.Write(buffer, 0, count);
+        }
+        return (Encoding.UTF8.GetString(memory.ToArray()), (int)response.StatusCode);
+    }
+
+    public static string JsonValue(string json, string path)
+    {
+        if (json.Length > MaxTextBytes) throw new InvalidOperationException("JSON больше 8 МиБ.");
+        using var document = System.Text.Json.JsonDocument.Parse(json);
+        var current = document.RootElement;
+        foreach (var part in path.Split('.', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var indexStart = part.IndexOf('[');
+            var property = indexStart < 0 ? part : part[..indexStart];
+            if (property.Length > 0)
+            {
+                if (current.ValueKind != System.Text.Json.JsonValueKind.Object ||
+                    !current.TryGetProperty(property, out current))
+                    throw new InvalidOperationException($"Поле JSON «{property}» не найдено.");
+            }
+            if (indexStart < 0) continue;
+            var suffix = part[indexStart..];
+            while (suffix.Length > 0)
+            {
+                var closing = suffix.IndexOf(']');
+                if (suffix[0] != '[' || closing < 2 ||
+                    !int.TryParse(suffix[1..closing], out var index) || index < 0 ||
+                    current.ValueKind != System.Text.Json.JsonValueKind.Array || index >= current.GetArrayLength())
+                    throw new InvalidOperationException("Неверный индекс массива в пути JSON.");
+                current = current[index];
+                suffix = suffix[(closing + 1)..];
+            }
+        }
+        return current.ValueKind == System.Text.Json.JsonValueKind.String ? current.GetString() ?? "" :
+            current.GetRawText();
+    }
 }

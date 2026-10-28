@@ -1,4 +1,4 @@
-#define AppVersion "1.1.7"
+#define AppVersion "1.1.8"
 #define AppName "Kliker Blocks"
 #ifndef BuildArch
   #define BuildArch "x64"
@@ -20,7 +20,7 @@ AppPublisher=Kliker Blocks
 DefaultDirName={localappdata}\Programs\Kliker Blocks
 DefaultGroupName=Kliker Blocks
 DisableProgramGroupPage=yes
-OutputDir=..\publish-v117
+OutputDir=..\publish-v118
 OutputBaseFilename=KlikerBlocks-Setup-{#AppVersion}-{#BuildArch}
 SetupIconFile=..\Assets\Kliker.ico
 UninstallDisplayIcon={app}\Kliker.Blocks.exe
@@ -54,7 +54,7 @@ Name: "autostart"; Description: "{cm:Autostart}"; Flags: unchecked
 Name: "taskbartip"; Description: "{cm:TaskbarTip}"; Flags: unchecked
 
 [Files]
-Source: "..\installer-payload-v117-{#BuildArch}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\installer-payload-v118-{#BuildArch}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{autoprograms}\Kliker Blocks"; Filename: "{app}\Kliker.Blocks.exe"

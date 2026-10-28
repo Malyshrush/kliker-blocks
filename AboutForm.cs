@@ -73,7 +73,10 @@ internal sealed class AboutForm : Form
     }
 
     private static string BuildReleases(Copy copy) =>
-        "v1.1.7\r\n" + (UiLanguage.Code == "ru"
+        "v1.1.8\r\n" + (UiLanguage.Code == "ru"
+            ? "Добавлены поиск и действия с элементами Windows через UI Automation, ожидание событий окна и файла, запись семантических кликов, точки останова и пошаговая отладка. Блоки HTTP POST и «Поле JSON» расширяют работу с данными. Подпрограмма принимает входы и возвращает выходы. У точек блока задаются форма, размер и заливка, у связей — размер наконечника и отступы изгиба. Подпись «Далее» рядом с выходом скрыта."
+            : "Added Windows UI Automation element search and actions, window and file event waits, semantic click recording, breakpoints and step debugging. HTTP POST and JSON field blocks extend data handling. Child scenarios accept inputs and return outputs. Block ports have configurable shape, size and fill; connections have marker size and bend distances. The Next caption beside output ports is hidden.") +
+        "\r\n\r\nv1.1.7\r\n" + (UiLanguage.Code == "ru"
             ? "Отдельные установщики и переносимые сборки для Windows x64 и x86. Блоки получили форму, заливку, окантовку и настраиваемые точки на контуре. Связи обходят блоки; для них настраиваются стрелка, рисунок линии, цвет, прозрачность и толщина. Стандарт блока можно сохранить для всего типа."
             : "Separate installers and portable builds for Windows x64 and x86. Blocks now offer shape, fill, border and adjustable outline ports. Connections route around blocks; arrow, pattern, color, opacity and width can be customized. A block appearance can be saved as the default for its type.") +
         "\r\n\r\nv1.1.6\r\n" + (UiLanguage.Code == "ru"

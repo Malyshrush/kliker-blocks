@@ -42,6 +42,7 @@ internal sealed class MainForm : Form
     private readonly bool _uiPreview;
     public LanguageSession? PendingLanguageSession { get; private set; }
     private Runner? _runner;
+    private DebugMonitorForm? _debugWindow;
     private MouseMappingRuntime? _mouseMappings;
     private ToolStripMenuItem? _mouseEnabledItem;
     private ToolStripMenuItem? _mouseLayersItem;
@@ -67,6 +68,7 @@ internal sealed class MainForm : Form
     private readonly ToolStripMenuItem _runButton = new("▶ Запустить  Ctrl+Alt+F6");
     private readonly ToolStripMenuItem _stopButton = new("■ Остановить  Ctrl+Alt+F7") { Enabled = false };
     private readonly ToolStripMenuItem _pauseButton = new("⏸ Пауза") { Enabled = false };
+    private readonly ToolStripMenuItem _debugStepButton = new("Следующий блок") { Enabled = false };
     private readonly ToolStripMenuItem _showIndicatorItem = new("Индикатор поверх окон") { CheckOnClick = true };
     private readonly ToolStripMenuItem _showLogItem = new("Показать журнал") { Checked = true };
     private readonly ToolStripMenuItem _runModeItem = new("Режим выполнения: один проход…");
@@ -148,6 +150,8 @@ internal sealed class MainForm : Form
         _pauseButton.Click += (_, _) => TogglePauseScenario();
         scenarioMenu.DropDownItems.Add(_runButton);
         scenarioMenu.DropDownItems.Add(_pauseButton);
+        _debugStepButton.Click += (_, _) => StepScenario();
+        scenarioMenu.DropDownItems.Add(_debugStepButton);
         scenarioMenu.DropDownItems.Add(_stopButton);
         AddMenuItem(scenarioMenu, "Показать компактную панель", (_, _) => ShowCompactControl());
         _runModeItem.Click += (_, _) => ConfigureRunMode();
@@ -586,6 +590,7 @@ internal sealed class MainForm : Form
             _file is null ? "Без имени" : Path.GetFileNameWithoutExtension(_file);
         var running = _cancel is not null;
         var paused = _runner?.IsPauseRequested == true;
+        _debugStepButton.Enabled = running && paused;
         _controller?.UpdateState(name, running, paused, _project.WindowScope?.Enabled == true);
         if (_trayStatusItem is not null)
             _trayStatusItem.Text = $"{UiLanguage.T(name)}: {UiLanguage.T(running ? paused ? "пауза" : "выполняется" : "готов")}";
@@ -624,15 +629,15 @@ internal sealed class MainForm : Form
     internal static string CategoryFor(string kind) => kind switch
     {
         "Description" => "Оформление",
-        "Start" or "Stop" or "Log" or "LogFile" or "LogClear" or "LogShow" or "PlaySound" or "SpeakText" or "Beep" or "InputDialog" or "ChoiceDialog" or "RadioDialog" or "HintPopup" or "Wait" or "ShowcaseStep" => "Основные",
+        "Start" or "Stop" or "Log" or "LogFile" or "LogClear" or "LogShow" or "PlaySound" or "SpeakText" or "Beep" or "InputDialog" or "ChoiceDialog" or "RadioDialog" or "HintPopup" or "Wait" or "WaitEvent" or "ShowcaseStep" => "Основные",
         "SetVariable" or "DefineVariable" or "UndefineVariable" or "SetVariableByName" or "MathVariable" or "ArraySet" or "ArrayAction" or "StringSplit" or "IfVariable" => "Переменные",
         "Repeat" or "WhileExpression" or "SwitchValue" or "Parallel" or "BranchEnd" or "CallSub" or "SubStart" or "SubReturn" => "Циклы и ветки",
         "IfExpression" => "Условия «Если» и поиск",
         "IfMoved" or "IfPixel" or "WaitPixel" or "IfKeyDown" or "FindColor" or "FindImage" or "BufferFindColor" or "BufferFindImage" or "IfWindow" => "Условия «Если» и поиск",
         "WatchCursor" or "MoveCursor" or "MoveRelative" or "Click" or "MouseButton" or "Wheel" or "Key" or "KeyState" or "VirtualKey" or "TypeText" or "ClipboardSet" or "InputGroup" => "Мышь и клавиатура",
-        "ClipboardGet" or "TextFile" or "TextFileArray" or "IniFile" or "DirectoryList" or "HttpGet" or
+        "ClipboardGet" or "TextFile" or "TextFileArray" or "IniFile" or "DirectoryList" or "HttpGet" or "HttpPost" or "JsonValue" or
         "TranslateText" or "DetectLanguage" or "LanguagePair" or "TranslateArray" => "Данные и файлы",
-        "Screenshot" or "BufferCapture" or "BufferPixel" or "BufferCount" or "BufferHash" or "BufferReplace" or "BufferScanColor" or "BufferScanImage" or "BufferSave" or "MoveFound" or "ActivateWindow" or "MoveWindow" or "WindowFind" or "WindowInfo" or "WindowAction" or "ElementAtPoint" or "ElementInfo" or "ElementSetText" or "MessageSend" or "MessageReceive" => "Экран и окна",
+        "Screenshot" or "BufferCapture" or "BufferPixel" or "BufferCount" or "BufferHash" or "BufferReplace" or "BufferScanColor" or "BufferScanImage" or "BufferSave" or "MoveFound" or "ActivateWindow" or "MoveWindow" or "WindowFind" or "WindowInfo" or "WindowAction" or "ElementAtPoint" or "ElementInfo" or "ElementSetText" or "UiWait" or "UiAction" or "MessageSend" or "MessageReceive" => "Экран и окна",
         _ => "Внешние программы"
     };
 
@@ -656,11 +661,42 @@ internal sealed class MainForm : Form
     {
         if (_cancel is null || _runner is null) return;
         var paused = !_runner.IsPauseRequested;
-        _runner.SetPaused(paused);
+        if (paused) _runner.SetPaused(true);
+        else _runner.ContinueDebug();
         _pauseButton.Text = UiLanguage.T(paused ? "▶ Продолжить" : "⏸ Пауза");
         _status.Text = UiLanguage.T(paused ? "Сценарий: пауза" : "Сценарий выполняется");
         AppendLog(paused ? "Пауза сценария запрошена" : "Сценарий продолжен");
         UpdateControlSurfaces();
+    }
+
+    private void StepScenario()
+    {
+        if (_runner is null || !_runner.IsPauseRequested) return;
+        _runner.StepDebug();
+        _pauseButton.Text = UiLanguage.T("⏸ Пауза");
+        UpdateControlSurfaces();
+    }
+
+    private void UpdateDebugState(Guid id, IReadOnlyDictionary<string, string> variables, bool paused)
+    {
+        if (IsDisposed) return;
+        _graph.ActiveDebugNode = id;
+        if (!paused) return;
+        if (_debugWindow is null || _debugWindow.IsDisposed)
+        {
+            _debugWindow = new DebugMonitorForm(StepScenario, () =>
+            {
+                if (_runner is null) return;
+                _runner.ContinueDebug();
+                _pauseButton.Text = UiLanguage.T("⏸ Пауза");
+                UpdateControlSurfaces();
+            });
+        }
+        if (!_debugWindow.Visible) _debugWindow.Show(this);
+        var node = _project.Nodes.FirstOrDefault(item => item.Id == id);
+        _debugWindow.UpdateState(node is null ? id.ToString() : UiLanguage.T(BlockCatalog.Get(node.Kind).Title), variables);
+        _debugStepButton.Enabled = true;
+        _status.Text = UiLanguage.T("Отладка: остановка перед блоком");
     }
 
     private void ConfigureRunMode()
@@ -1409,6 +1445,20 @@ internal sealed class MainForm : Form
             DecimalPlaces = 1, Increment = .5m, Value = appearance.Thickness };
         thickness.ValueChanged += (_, _) => { appearance.Thickness = thickness.Value; SaveAppearance(); };
         _fields.Controls.Add(thickness);
+        void AddDistance(string label, int value, Action<int> change)
+        {
+            _fields.Controls.Add(new Label { Text = UiLanguage.T(label), Width = 250, Height = 42 });
+            var distance = new NumericUpDown { Width = 250, Minimum = 0, Maximum = 200,
+                Increment = 2, Value = value };
+            distance.ValueChanged += (_, _) => { change((int)distance.Value); SaveAppearance(); };
+            _fields.Controls.Add(distance);
+        }
+        AddDistance("Размер наконечника (4–48)", appearance.EndSize,
+            value => appearance.EndSize = value);
+        AddDistance("Отступ изгиба от выхода (0–200)", appearance.ExitDistance,
+            value => appearance.ExitDistance = value);
+        AddDistance("Отступ изгиба от входа (0–200)", appearance.EntryDistance,
+            value => appearance.EntryDistance = value);
         var reset = new Button { Text = UiLanguage.T("Сбросить оформление связи"), Width = 250, Height = 34 };
         reset.Click += (_, _) =>
         {
@@ -1451,6 +1501,11 @@ internal sealed class MainForm : Form
             Height = 28, Checked = node.LogActions, Margin = new Padding(0, 4, 0, 8) };
         trace.CheckedChanged += (_, _) => { node.LogActions = trace.Checked; _graph.Invalidate(); };
         _fields.Controls.Add(trace);
+        var breakpoint = new CheckBox { Text = UiLanguage.T("Точка останова перед блоком"),
+            Width = 250, Height = 28, Checked = node.Breakpoint };
+        breakpoint.CheckedChanged += (_, _) =>
+        { node.Breakpoint = breakpoint.Checked; _graph.Invalidate(); };
+        _fields.Controls.Add(breakpoint);
         var appearanceButton = new Button { Text = UiLanguage.T("Оформление блока…"),
             Width = 250, Height = 36, Margin = new Padding(0, 2, 0, 8) };
         appearanceButton.Click += (_, _) =>
@@ -1633,6 +1688,38 @@ internal sealed class MainForm : Form
                     _fields.Controls.Add(capture);
                 }
             }
+        }
+        if (node.Kind is "UiWait" or "UiAction")
+        {
+            var captureElement = new Button { Text = UiLanguage.T("Захватить элемент под указателем через 3 секунды…"),
+                Width = 250, Height = 42, Margin = new Padding(0, 10, 0, 0) };
+            captureElement.Click += async (_, _) =>
+            {
+                captureElement.Enabled = false;
+                try
+                {
+                    await Task.Delay(3000);
+                    var position = Control.MousePosition;
+                    var element = await Task.Run(() => UiAutomationTools.Inspect(position));
+                    if (!IsDisposed && _selected?.Id == node.Id)
+                    {
+                        node.Values["WindowTitle"] = element.WindowTitle;
+                        node.Values["AutomationId"] = element.AutomationId;
+                        node.Values["ElementName"] = element.AutomationId.Length == 0 ? element.Name : "";
+                        node.Values["ControlType"] = element.ControlType;
+                        ShowProperties(node);
+                    }
+                }
+                catch (Exception error) when (error is InvalidOperationException or
+                    System.Windows.Automation.ElementNotAvailableException or
+                    System.Runtime.InteropServices.COMException)
+                {
+                    MessageBox.Show(_editorWindow ?? this, error.Message,
+                        UiLanguage.T("Захват элемента Windows"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+                finally { if (!captureElement.IsDisposed) captureElement.Enabled = true; }
+            };
+            _fields.Controls.Add(captureElement);
         }
         if (node.Kind is "TranslateText" or "TranslateArray" or "LanguagePair")
         {
@@ -1866,7 +1953,8 @@ internal sealed class MainForm : Form
                 hintPopup: (message, title) => UI(() => ShowHintPopup(message, title)),
                 messageInbox: _messageInbox, selfHandle: Handle, argosPythonPath: _settings.ArgosPythonPath,
                 showcaseStep: showcaseSession is null ? null :
-                    (action, variables, cancel) => showcaseSession.ExecuteAsync(action, variables, cancel));
+                    (action, variables, cancel) => showcaseSession.ExecuteAsync(action, variables, cancel),
+                debugState: (id, variables, paused) => UI(() => UpdateDebugState(id, variables, paused)));
             await _runner.RunAsync(_cancel.Token);
             AppendLog("Сценарий завершён");
         }
@@ -1885,6 +1973,10 @@ internal sealed class MainForm : Form
             _cancel.Dispose();
             _cancel = null;
             _runner = null;
+            _graph.ActiveDebugNode = null;
+            _debugStepButton.Enabled = false;
+            _debugWindow?.Close();
+            _debugWindow = null;
             _journalWriter = null;
             _runButton.Enabled = true;
             _pauseButton.Enabled = false;
@@ -2266,6 +2358,13 @@ internal sealed class GraphCanvas : Control
 {
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public ProjectModel Project { get; set; } = new();
+    private Guid? _activeDebugNode;
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    internal Guid? ActiveDebugNode
+    {
+        get => _activeDebugNode;
+        set { _activeDebugNode = value; Invalidate(); }
+    }
     public event Action<BlockNode?>? SelectionChanged;
     public event Action<IReadOnlyList<BlockNode>>? SelectionSetChanged;
     public event Action<BlockNode, string, BlockNode>? LinkSelectionChanged;
@@ -2467,11 +2566,11 @@ internal sealed class GraphCanvas : Control
                 if (source.Link(ports[i]) is not Guid targetId) continue;
                 var target = Project.Nodes.FirstOrDefault(n => n.Id == targetId);
                 if (target == null || target.Kind == "Description") continue;
-                var route = GraphLinkRouter.Route(source, i, target, Project.Nodes);
-                if (route.Length < 2) continue;
-                var selected = _selectedLink == (source.Id, ports[i]);
                 var appearance = source.LinkStyles.GetValueOrDefault(ports[i]) ?? new LinkAppearance();
                 if (!appearance.IsValid()) appearance = new LinkAppearance();
+                var route = GraphLinkRouter.Route(source, i, target, Project.Nodes, appearance);
+                if (route.Length < 2) continue;
+                var selected = _selectedLink == (source.Id, ports[i]);
                 var baseColor = ColorTranslator.FromHtml(appearance.Color);
                 var color = selected ? Color.FromArgb(255, 151, 31)
                     : Color.FromArgb((int)Math.Round(255 * appearance.OpacityPercent / 100d), baseColor);
@@ -2481,7 +2580,7 @@ internal sealed class GraphCanvas : Control
                       "DashDot" => DashStyle.DashDot, "DashDotDot" => DashStyle.DashDotDot,
                       _ => DashStyle.Solid } };
                 g.DrawLines(pen, route);
-                DrawEndDecoration(g, color, route[^2], route[^1], appearance.End);
+                DrawEndDecoration(g, color, route[^2], route[^1], appearance.End, appearance.EndSize);
             }
         }
 
@@ -2496,11 +2595,20 @@ internal sealed class GraphCanvas : Control
             var selected = _selectedNodes.Contains(node.Id);
             var borderColor = ColorTranslator.FromHtml(appearance.BorderColor);
             using var border = new Pen(selected ? Color.FromArgb(255, 184, 53) :
+                ActiveDebugNode == node.Id ? Color.FromArgb(48, 206, 164) :
                 Color.FromArgb((int)Math.Round(255 * appearance.BorderOpacityPercent / 100d), borderColor),
-                selected ? Math.Max(3, (float)appearance.BorderWidth + 1.5f) : (float)appearance.BorderWidth);
+                selected || ActiveDebugNode == node.Id ? Math.Max(3, (float)appearance.BorderWidth + 1.5f)
+                    : (float)appearance.BorderWidth);
             using var outline = BlockGeometry.Outline(rectangle, appearance.Shape);
             g.FillPath(fill, outline);
             g.DrawPath(border, outline);
+            if (node.Breakpoint)
+            {
+                using var marker = new SolidBrush(Color.FromArgb(221, 59, 62));
+                using var markerOutline = new Pen(Color.White, 2);
+                g.FillEllipse(marker, rectangle.Right - 23, rectangle.Top + 7, 12, 12);
+                g.DrawEllipse(markerOutline, rectangle.Right - 23, rectangle.Top + 7, 12, 12);
+            }
             using var titleFont = new Font(Font.FontFamily, 10, FontStyle.Bold);
             using var hintFont = new Font(Font.FontFamily, 8);
             var title = node.Kind == "ShowcaseStep" ? node.Value("Caption", UiLanguage.T(spec.Title)) :
@@ -2533,18 +2641,15 @@ internal sealed class GraphCanvas : Control
             if (node.Kind != "Start")
             {
                 var input = InputPoint(node);
-                using var blue = new SolidBrush(Color.FromArgb(46, 111, 229));
-                using var ring = new Pen(Color.White, 2f);
-                g.FillEllipse(blue, input.X - 7, input.Y - 7, 14, 14);
-                g.DrawEllipse(ring, input.X - 7, input.Y - 7, 14, 14);
+                PortPainter.Draw(g, input, appearance.InputPort, Color.White);
             }
             for (var i = 0; i < spec.Outputs.Length; i++)
             {
                 var p = OutputPoint(node, i);
-                using var red = new SolidBrush(Color.FromArgb(230, 71, 77));
-                using var ring = new Pen(_pending == (node.Id, spec.Outputs[i]) ? Color.Gold : Color.White, 2f);
-                g.FillEllipse(red, p.X - 7, p.Y - 7, 14, 14);
-                g.DrawEllipse(ring, p.X - 7, p.Y - 7, 14, 14);
+                PortPainter.Draw(g, p,
+                    appearance.OutputPorts.GetValueOrDefault(spec.Outputs[i]) ?? new PortAppearance(),
+                    _pending == (node.Id, spec.Outputs[i]) ? Color.Gold : Color.White);
+                if (spec.Outputs[i] == "Далее") continue;
                 using var labelFormat = new StringFormat { Alignment = tall ? StringAlignment.Center : StringAlignment.Far,
                     Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap };
                 g.DrawString(UiLanguage.T(spec.Outputs[i]), hintFont, Brushes.White,
@@ -2574,7 +2679,8 @@ internal sealed class GraphCanvas : Control
         }
     }
 
-    private static void DrawEndDecoration(Graphics graphics, Color color, Point before, Point target, string end)
+    private static void DrawEndDecoration(Graphics graphics, Color color, Point before, Point target,
+        string end, int size)
     {
         if (end == "Line") return;
         var dx = target.X - before.X;
@@ -2583,31 +2689,32 @@ internal sealed class GraphCanvas : Control
         if (length < 1) return;
         var ux = dx / length;
         var uy = dy / length;
-        var tip = new PointF((float)(target.X - ux * 9), (float)(target.Y - uy * 9));
+        var tip = new PointF((float)(target.X - ux * size * .5),
+            (float)(target.Y - uy * size * .5));
         using var brush = new SolidBrush(color);
         if (end == "Circle")
         {
-            graphics.FillEllipse(brush, tip.X - 5, tip.Y - 5, 10, 10);
+            graphics.FillEllipse(brush, tip.X - size / 2f, tip.Y - size / 2f, size, size);
             return;
         }
-        var baseX = tip.X - ux * 10;
-        var baseY = tip.Y - uy * 10;
+        var baseX = tip.X - ux * size;
+        var baseY = tip.Y - uy * size;
         if (end == "Diamond")
         {
             graphics.FillPolygon(brush,
             [
                 tip,
-                new PointF((float)(baseX - uy * 5), (float)(baseY + ux * 5)),
-                new PointF((float)(baseX - ux * 10), (float)(baseY - uy * 10)),
-                new PointF((float)(baseX + uy * 5), (float)(baseY - ux * 5))
+                new PointF((float)(baseX - uy * size * .5), (float)(baseY + ux * size * .5)),
+                new PointF((float)(baseX - ux * size), (float)(baseY - uy * size)),
+                new PointF((float)(baseX + uy * size * .5), (float)(baseY - ux * size * .5))
             ]);
             return;
         }
         graphics.FillPolygon(brush,
         [
             tip,
-            new PointF((float)(baseX - uy * 5), (float)(baseY + ux * 5)),
-            new PointF((float)(baseX + uy * 5), (float)(baseY - ux * 5))
+            new PointF((float)(baseX - uy * size * .5), (float)(baseY + ux * size * .5)),
+            new PointF((float)(baseX + uy * size * .5), (float)(baseY - ux * size * .5))
         ]);
     }
 
@@ -2728,7 +2835,9 @@ internal sealed class GraphCanvas : Control
         for (var i = 0; i < spec.Outputs.Length; i++)
         {
             var port = OutputPoint(hit, i);
-            if (Distance(port, world) > 12 / _zoom) continue;
+            var portSize = BlockAppearanceManager.Resolve(hit).OutputPorts
+                .GetValueOrDefault(spec.Outputs[i])?.Size ?? 14;
+            if (Distance(port, world) > Math.Max(12, portSize / 2f + 4) / _zoom) continue;
             if (e.Button == MouseButtons.Right)
             {
                 hit.Links[spec.Outputs[i]] = null;
@@ -2743,7 +2852,9 @@ internal sealed class GraphCanvas : Control
             Invalidate();
             return;
         }
-        if (hit.Kind != "Start" && Distance(InputPoint(hit), world) <= 12 / _zoom && _pending is { } pending)
+        if (hit.Kind != "Start" && Distance(InputPoint(hit), world) <=
+            Math.Max(12, BlockAppearanceManager.Resolve(hit).InputPort.Size / 2f + 4) / _zoom &&
+            _pending is { } pending)
         {
             var source = Project.Nodes.FirstOrDefault(n => n.Id == pending.Id);
             if (source != null && source.Id != hit.Id)
@@ -2887,7 +2998,8 @@ internal sealed class GraphCanvas : Control
                 if (source.Link(ports[i]) is not Guid targetId) continue;
                 var target = Project.Nodes.FirstOrDefault(n => n.Id == targetId);
                 if (target == null || target.Kind == "Description") continue;
-                var route = GraphLinkRouter.Route(source, i, target, Project.Nodes);
+                var route = GraphLinkRouter.Route(source, i, target, Project.Nodes,
+                    source.LinkStyles.GetValueOrDefault(ports[i]));
                 for (var step = 1; step < route.Length; step++)
                 {
                     var distance = SegmentDistance(point, route[step - 1], route[step]);

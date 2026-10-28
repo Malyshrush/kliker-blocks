@@ -8,11 +8,11 @@
 
 ![Добровольная поддержка проекта](screenshots/support-ru.png)
 
-Kliker Blocks 1.1.7 — публичная бета визуального редактора сценариев для Windows. При первом запуске, до редактора и демонстрации, выберите английский или русский язык. Выбор сохраняется; сменить язык позже можно в меню «Языки».
+Kliker Blocks 1.1.8 — публичная бета визуального редактора сценариев для Windows. При первом запуске, до редактора и демонстрации, выберите английский или русский язык. Выбор сохраняется; сменить язык позже можно в меню «Языки».
 
 ## Установка
 
-В папке выпуска есть установщики `KlikerBlocks-Setup-1.1.7-x64.exe` и `KlikerBlocks-Setup-1.1.7-x86.exe`, а также переносимые ZIP-сборки для обеих архитектур. На 64-разрядной Windows выбирайте x64, на 32-разрядной — x86. Установщик сам выбирает английский или русский язык интерфейса по языку Windows. Можно выбрать папку, значок на рабочем столе, автозапуск и запуск после установки. Автозапуск также переключается в меню «Сценарий → Запускать вместе с Windows». Закрепление на панели задач выполняется через меню Windows у значка работающей программы: установщик не может сделать это автоматически без действия пользователя.
+В папке выпуска есть установщики `KlikerBlocks-Setup-1.1.8-x64.exe` и `KlikerBlocks-Setup-1.1.8-x86.exe`, а также переносимые ZIP-сборки для обеих архитектур. На 64-разрядной Windows выбирайте x64, на 32-разрядной — x86. Установщик сам выбирает английский или русский язык интерфейса по языку Windows. Можно выбрать папку, значок на рабочем столе, автозапуск и запуск после установки. Автозапуск также переключается в меню «Сценарий → Запускать вместе с Windows». Закрепление на панели задач выполняется через меню Windows у значка работающей программы: установщик не может сделать это автоматически без действия пользователя.
 
 В журнале основного и отдельного окна «Перенос строк» меняет только отображение длинных записей. Справка показывает копируемый код графа в отдельной панели. Смешанный текст с вычислениями задаётся как `=[($counter+2)*3]& па \&`: при `counter=1` результат — `9 па &`.
 
@@ -24,6 +24,10 @@ Kliker Blocks 1.1.7 — публичная бета визуального ре�
 
 ## Редактор и запуск
 
+- Блоки «Дождаться элемента» и «Действие с элементом» работают с доступными элементами окон Windows через UI Automation. Макрос может записать семантический клик и подготовить эти блоки; при отсутствии доступного элемента используется координатный клик.
+- Блок «Ожидать событие» реагирует на появление или закрытие окна и на изменение файла. Точка останова перед блоком, окно переменных, шаг и продолжение помогают отладить сценарий.
+- Блоки HTTP POST и «Поле JSON» отправляют данные выбранному сервису и извлекают поля ответа. «Запустить сценарий» передаёт дочернему графу входы и возвращает выбранные выходные переменные.
+- В свойствах блока теперь отдельно меняются форма, размер, заливка и прозрачность точек входа и выхода. У связи можно настроить размер наконечника и расстояния изгибов от обоих блоков. При нулевых отступах и свободном пути связь прямая. Подпись «Далее» у выходной точки скрыта.
 - Соединяйте блоки на поле или редактируйте тот же граф через переключатель «Код Kliker Blocks».
 - Входная синяя точка и выходные красные точки лежат на контуре блока; положение каждой можно изменить в «Оформлении блока». Там же задаются форма, заливка и окантовка. Вид можно сохранить для одного блока или сделать стандартным для всех блоков данного типа.
 - Связи со стрелкой обходят остальные блоки. Щёлкните связь, чтобы выбрать наконечник, сплошную или прерывистую линию, цвет, прозрачность и толщину. Индивидуальные настройки сохраняются в проекте и в текстовом коде графа.
@@ -63,7 +67,9 @@ Kliker Blocks 1.1.7 — публичная бета визуального ре�
 
 ## English
 
-Kliker Blocks 1.1.7 is a public beta visual scenario editor for Windows. Connect blocks for logic, input, desktop control, files, screenshots, speech and logging, or edit the same graph as code. The interface and built-in Help are available in English and Russian. Each block has a copyable example graph.
+Kliker Blocks 1.1.8 is a public beta visual scenario editor for Windows. Connect blocks for logic, input, desktop control, files, screenshots, speech and logging, or edit the same graph as code. The interface and built-in Help are available in English and Russian. Each block has a copyable example graph.
+
+Version 1.1.8 adds Windows UI Automation wait/action blocks, semantic click recording, window and file event waits, breakpoints with step debugging, HTTP POST, JSON field extraction, child-scenario inputs and outputs, and configurable port and connection geometry. The Next caption beside output ports is hidden.
 
 Download the [latest installer or portable build](https://github.com/Malyshrush/kliker-blocks/releases/latest). Read the [website and searchable block catalog](https://malyshrush.github.io/kliker-blocks-site/), or join the [community discussions](https://github.com/Malyshrush/kliker-blocks-site/discussions) for help, bug reports, ideas and shared graphs.
 

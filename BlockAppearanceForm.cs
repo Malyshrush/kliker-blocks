@@ -52,7 +52,7 @@ internal sealed class BlockAppearanceForm : Form
         shape.SelectedIndexChanged += (_, _) =>
         {
             _appearance.Shape = shapes[shape.SelectedIndex].Key;
-            SetSelectedAngle();
+            if (node.Kind != "Description") SetSelectedAngle();
             _preview?.Invalidate();
         };
 
@@ -99,7 +99,7 @@ internal sealed class BlockAppearanceForm : Form
         _port = new ComboBox { Width = 300, DropDownStyle = ComboBoxStyle.DropDownList };
         if (_hasInput) _port.Items.Add(UiLanguage.T("Вход"));
         foreach (var output in spec.Outputs) _port.Items.Add(UiLanguage.T("Выход") + ": " + UiLanguage.T(output));
-        _port.SelectedIndex = 0;
+        if (_port.Items.Count > 0) _port.SelectedIndex = 0;
         if (node.Kind != "Description") controls.Controls.Add(_port);
         if (node.Kind != "Description") Label("Угол точки (0–359°)");
         _angle = Number(0, 359, 0, 1);
@@ -110,7 +110,7 @@ internal sealed class BlockAppearanceForm : Form
 
         _preview = new BlockAppearancePreview(node, () => _appearance, () => _port.SelectedIndex)
         { Dock = DockStyle.Fill, BackColor = Color.White };
-        _preview.AngleChosen += value => _angle.Value = value;
+        if (node.Kind != "Description") _preview.AngleChosen += value => _angle.Value = value;
         root.Controls.Add(_preview, 1, 0);
         _port.SelectedIndexChanged += (_, _) => { SetSelectedAngle(); _preview.Invalidate(); };
         _angle.ValueChanged += (_, _) =>
@@ -119,7 +119,59 @@ internal sealed class BlockAppearanceForm : Form
             else _appearance.OutputAngles[spec.Outputs[_port.SelectedIndex - (_hasInput ? 1 : 0)]] = (int)_angle.Value;
             _preview.Invalidate();
         };
-        SetSelectedAngle();
+        if (node.Kind != "Description") SetSelectedAngle();
+
+        Action? refreshPortControls = null;
+        if (node.Kind != "Description")
+        {
+            PortAppearance CurrentPort()
+            {
+                if (_hasInput && _port.SelectedIndex == 0) return _appearance.InputPort;
+                var output = spec.Outputs[_port.SelectedIndex - (_hasInput ? 1 : 0)];
+                if (!_appearance.OutputPorts.TryGetValue(output, out var portAppearance))
+                    _appearance.OutputPorts[output] = portAppearance = new PortAppearance();
+                return portAppearance;
+            }
+            Label("Форма выбранной точки");
+            var portShapes = new (string Key, string Label)[] { ("Circle", "Круг"),
+                ("Square", "Квадрат"), ("Diamond", "Ромб"), ("Triangle", "Треугольник") };
+            var portShape = new ComboBox { Width = 300, DropDownStyle = ComboBoxStyle.DropDownList };
+            portShape.Items.AddRange(portShapes.Select(item => UiLanguage.T(item.Label)).Cast<object>().ToArray());
+            controls.Controls.Add(portShape);
+            Label("Размер выбранной точки (6–36)");
+            var portSize = Number(6, 36, CurrentPort().Size, 1);
+            controls.Controls.Add(portSize);
+            Label("Заливка выбранной точки");
+            var portColor = ColorButton(ColorTranslator.FromHtml(CurrentPort().FillColor), "Выбрать цвет точки…");
+            controls.Controls.Add(portColor);
+            Label("Непрозрачность точки, % (0–100)");
+            var portOpacity = Number(0, 100, CurrentPort().FillOpacityPercent, 5);
+            controls.Controls.Add(portOpacity);
+            void RefreshPortControls()
+            {
+                var current = CurrentPort();
+                portShape.SelectedIndex = Math.Max(0, Array.FindIndex(portShapes, item => item.Key == current.Shape));
+                portSize.Value = current.Size;
+                portOpacity.Value = current.FillOpacityPercent;
+                SetButtonColor(portColor, ColorTranslator.FromHtml(current.FillColor), "Выбрать цвет точки…");
+            }
+            refreshPortControls = RefreshPortControls;
+            _port.SelectedIndexChanged += (_, _) => RefreshPortControls();
+            portShape.SelectedIndexChanged += (_, _) =>
+            { CurrentPort().Shape = portShapes[portShape.SelectedIndex].Key; _preview.Invalidate(); };
+            portSize.ValueChanged += (_, _) => { CurrentPort().Size = (int)portSize.Value; _preview.Invalidate(); };
+            portOpacity.ValueChanged += (_, _) =>
+            { CurrentPort().FillOpacityPercent = (int)portOpacity.Value; _preview.Invalidate(); };
+            portColor.Click += (_, _) =>
+            {
+                using var picker = new ColorDialog { Color = ColorTranslator.FromHtml(CurrentPort().FillColor), FullOpen = true };
+                if (picker.ShowDialog(this) != DialogResult.OK) return;
+                CurrentPort().FillColor = Html(picker.Color);
+                SetButtonColor(portColor, picker.Color, "Выбрать цвет точки…");
+                _preview.Invalidate();
+            };
+            RefreshPortControls();
+        }
 
         var footer = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft,
             WrapContents = false, Padding = new Padding(0, 8, 0, 0) };
@@ -144,7 +196,8 @@ internal sealed class BlockAppearanceForm : Form
             borderWidth.Value = 1;
             SetButtonColor(fill, spec.Color, "Выбрать цвет заливки…");
             SetButtonColor(border, ColorTranslator.FromHtml(_appearance.BorderColor), "Выбрать цвет окантовки…");
-            SetSelectedAngle();
+            if (node.Kind != "Description") SetSelectedAngle();
+            refreshPortControls?.Invoke();
             _preview.Invalidate();
         };
         footer.Controls.Add(standard);
@@ -222,15 +275,17 @@ internal sealed class BlockAppearancePreview(BlockNode node, Func<BlockAppearanc
         if (node.Kind is not ("Description" or "Start"))
         {
             var input = BlockGeometry.OnContour(bounds, style.Shape, style.InputAngle ?? 180 + corner);
-            DrawPort(e.Graphics, input, Color.FromArgb(46, 111, 229), selectedPort() == 0);
+            PortPainter.Draw(e.Graphics, input, style.InputPort,
+                selectedPort() == 0 ? Color.Gold : Color.White);
         }
         for (var index = 0; index < spec.Outputs.Length; index++)
         {
             var angle = style.OutputAngles.GetValueOrDefault(spec.Outputs[index],
                 (corner - index * 18 + 360) % 360);
             var output = BlockGeometry.OnContour(bounds, style.Shape, angle);
-            DrawPort(e.Graphics, output, Color.FromArgb(230, 71, 77),
-                selectedPort() == index + (node.Kind == "Start" ? 0 : 1));
+            PortPainter.Draw(e.Graphics, output,
+                style.OutputPorts.GetValueOrDefault(spec.Outputs[index]) ?? new PortAppearance(),
+                selectedPort() == index + (node.Kind == "Start" ? 0 : 1) ? Color.Gold : Color.White);
         }
         if (node.Kind != "Description")
         {
@@ -238,14 +293,6 @@ internal sealed class BlockAppearancePreview(BlockNode node, Func<BlockAppearanc
             e.Graphics.DrawString(UiLanguage.T("Щёлкните для перемещения выбранной точки"), instruction,
                 Brushes.SlateGray, new RectangleF(12, Height - 48, Width - 24, 40), format);
         }
-    }
-
-    private static void DrawPort(Graphics graphics, Point point, Color color, bool selected)
-    {
-        using var fill = new SolidBrush(color);
-        using var ring = new Pen(selected ? Color.Gold : Color.White, selected ? 3f : 2f);
-        graphics.FillEllipse(fill, point.X - 8, point.Y - 8, 16, 16);
-        graphics.DrawEllipse(ring, point.X - 8, point.Y - 8, 16, 16);
     }
 
     protected override void OnMouseDown(MouseEventArgs e)

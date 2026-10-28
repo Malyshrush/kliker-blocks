@@ -40,6 +40,7 @@ internal static class GraphCodeCodec
                 .Append(node.X.ToString(CultureInfo.InvariantCulture)).Append(' ')
                 .Append(node.Y.ToString(CultureInfo.InvariantCulture)).Append(" id ").Append(node.Id).AppendLine();
             if (node.LogActions) result.AppendLine("  trace true");
+            if (node.Breakpoint) result.AppendLine("  breakpoint true");
             foreach (var (key, value) in node.Values.OrderBy(item => item.Key, StringComparer.Ordinal))
                 result.Append("  value ").Append(JsonSerializer.Serialize(key, JsonOptions)).Append(" = ")
                     .Append(JsonSerializer.Serialize(MultilineFieldText.IsMultiline(node.Kind, key)
@@ -120,6 +121,12 @@ internal static class GraphCodeCodec
                 current.LogActions = text.EndsWith("true", StringComparison.OrdinalIgnoreCase);
                 continue;
             }
+            if (text.Equals("breakpoint true", StringComparison.OrdinalIgnoreCase) ||
+                text.Equals("breakpoint false", StringComparison.OrdinalIgnoreCase))
+            {
+                current.Breakpoint = text.EndsWith("true", StringComparison.OrdinalIgnoreCase);
+                continue;
+            }
             var value = Value.Match(text);
             if (value.Success)
             {
@@ -163,7 +170,7 @@ internal static class GraphCodeCodec
                 current.Appearance = appearance;
                 continue;
             }
-            throw new GraphCodeException(lineNumber, UiLanguage.T("Ожидается trace true/false, value, link, style, appearance или end."));
+            throw new GraphCodeException(lineNumber, UiLanguage.T("Ожидается trace, breakpoint, value, link, style, appearance или end."));
         }
         if (current is not null) throw new GraphCodeException(lines.Length, "Не хватает end для последнего блока.");
         foreach (var (node, output, target, line) in pending)

@@ -5,7 +5,6 @@ namespace KlikerBlocks;
 /// <summary>Routes a connection around executable blocks in world coordinates.</summary>
 internal static class GraphLinkRouter
 {
-    private const int PortOffset = 14;
     private const int TurnCost = 10;
 
     internal static int InputAngle(BlockNode node)
@@ -35,16 +34,24 @@ internal static class GraphLinkRouter
         BlockCatalog.Bounds(node), BlockAppearanceManager.Resolve(node).Shape, OutputAngle(node, index));
 
     internal static Point[] Route(BlockNode source, int outputIndex, BlockNode target,
-        IReadOnlyList<BlockNode> nodes)
+        IReadOnlyList<BlockNode> nodes, LinkAppearance? appearance = null)
     {
+        appearance ??= new LinkAppearance();
         var from = OutputPoint(source, outputIndex);
         var to = InputPoint(target);
         var sourceBounds = BlockCatalog.Bounds(source);
         var targetBounds = BlockCatalog.Bounds(target);
-        var sourceExits = OutsideAnchors(from, sourceBounds, OutputAngle(source, outputIndex));
-        var targetEntries = OutsideAnchors(to, targetBounds, InputAngle(target));
+        var sourceExits = OutsideAnchors(from, sourceBounds, OutputAngle(source, outputIndex), appearance.ExitDistance);
+        var targetEntries = OutsideAnchors(to, targetBounds, InputAngle(target), appearance.EntryDistance);
         var blocks = nodes.Where(node => node.Kind != "Description")
             .Select(node => (node.Id, Bounds: BlockCatalog.Bounds(node))).ToArray();
+
+        if (appearance.ExitDistance == 0 && appearance.EntryDistance == 0 &&
+            PointsOutward(from, to, OutputAngle(source, outputIndex)) &&
+            PointsOutward(to, from, InputAngle(target)) &&
+            !blocks.Any(block => block.Id != source.Id && block.Id != target.Id &&
+                CrossesRectangle(from, to, block.Bounds)))
+            return [from, to];
 
         Point[]? best = null;
         var bestCost = double.PositiveInfinity;
@@ -84,17 +91,46 @@ internal static class GraphLinkRouter
         return best ?? [];
     }
 
-    private static Point[] OutsideAnchors(Point point, Rectangle bounds, int angle)
+    private static bool PointsOutward(Point origin, Point other, int angle)
+    {
+        var radians = angle * Math.PI / 180;
+        return (other.X - origin.X) * Math.Cos(radians) +
+            (other.Y - origin.Y) * Math.Sin(radians) >= 0;
+    }
+
+    private static Point[] OutsideAnchors(Point point, Rectangle bounds, int angle, int distance)
     {
         var radians = angle * Math.PI / 180;
         var dx = Math.Cos(radians);
         var dy = Math.Sin(radians);
         var result = new List<Point>(2);
         if (Math.Abs(dx) > 1e-6)
-            result.Add(new Point(dx > 0 ? bounds.Right + PortOffset : bounds.Left - PortOffset, point.Y));
+            result.Add(new Point(dx > 0 ? bounds.Right + distance : bounds.Left - distance, point.Y));
         if (Math.Abs(dy) > 1e-6)
-            result.Add(new Point(point.X, dy > 0 ? bounds.Bottom + PortOffset : bounds.Top - PortOffset));
+            result.Add(new Point(point.X, dy > 0 ? bounds.Bottom + distance : bounds.Top - distance));
         return result.ToArray();
+    }
+
+    private static bool CrossesRectangle(Point from, Point to, Rectangle rect)
+    {
+        using var path = new System.Drawing.Drawing2D.GraphicsPath();
+        path.AddLine(from, to);
+        using var pen = new Pen(Color.Black, 2);
+        return path.IsOutlineVisible(rect.Left + rect.Width / 2, rect.Top + rect.Height / 2, pen) ||
+            SegmentIntersects(from, to, new(rect.Left, rect.Top), new(rect.Right, rect.Top)) ||
+            SegmentIntersects(from, to, new(rect.Right, rect.Top), new(rect.Right, rect.Bottom)) ||
+            SegmentIntersects(from, to, new(rect.Right, rect.Bottom), new(rect.Left, rect.Bottom)) ||
+            SegmentIntersects(from, to, new(rect.Left, rect.Bottom), new(rect.Left, rect.Top));
+    }
+
+    private static bool SegmentIntersects(Point a, Point b, Point c, Point d)
+    {
+        static long Cross(Point p, Point q, Point r) =>
+            (long)(q.X - p.X) * (r.Y - p.Y) - (long)(q.Y - p.Y) * (r.X - p.X);
+        var abC = Cross(a, b, c); var abD = Cross(a, b, d);
+        var cdA = Cross(c, d, a); var cdB = Cross(c, d, b);
+        return (abC < 0 && abD > 0 || abC > 0 && abD < 0) &&
+            (cdA < 0 && cdB > 0 || cdA > 0 && cdB < 0);
     }
 
     private static bool CrossesAnotherBlock(Point start, Point end,

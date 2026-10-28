@@ -16,7 +16,7 @@ internal static class VariableNameRules
             !field.Label.Contains("файла", StringComparison.OrdinalIgnoreCase),
         "Reference" or "Result" or "Array" or "ArrayName" or "CountName" or
         "XName" or "YName" or "WidthName" or "HeightName" or "WName" or
-        "LName" or "NewName" or "Confidence" => true,
+        "LName" or "NewName" or "Confidence" or "Status" or "Error" => true,
         "Input" or "Output" => kind == "TranslateArray",
         "Count" => field.Label.Contains("переменн", StringComparison.OrdinalIgnoreCase),
         _ => false

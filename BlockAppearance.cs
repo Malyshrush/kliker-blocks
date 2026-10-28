@@ -16,6 +16,8 @@ public sealed class BlockAppearance
     // Null uses the standard upper-left / lower-right contour position.
     public int? InputAngle { get; set; }
     public Dictionary<string, int> OutputAngles { get; set; } = [];
+    public PortAppearance InputPort { get; set; } = new() { FillColor = "#2E6FE5" };
+    public Dictionary<string, PortAppearance> OutputPorts { get; set; } = [];
 
     public bool IsValid() =>
         Shape is "Rounded" or "Rectangle" or "Square" or "Circle" or "Diamond" &&
@@ -23,7 +25,9 @@ public sealed class BlockAppearance
         FillOpacityPercent is >= 0 and <= 100 && BorderOpacityPercent is >= 0 and <= 100 &&
         BorderWidth is >= 1 and <= 12 &&
         (InputAngle is null or >= 0 and <= 359) &&
-        OutputAngles is not null && OutputAngles.Values.All(value => value is >= 0 and <= 359);
+        OutputAngles is not null && OutputAngles.Values.All(value => value is >= 0 and <= 359) &&
+        InputPort is not null && InputPort.IsValid() && OutputPorts is not null &&
+        OutputPorts.Values.All(value => value is not null && value.IsValid());
 
     private static bool Hex(string value) => value is not null && Regex.IsMatch(value, "^#[0-9A-Fa-f]{6}$");
 
@@ -36,8 +40,49 @@ public sealed class BlockAppearance
         BorderOpacityPercent = BorderOpacityPercent,
         BorderWidth = BorderWidth,
         InputAngle = InputAngle,
-        OutputAngles = new Dictionary<string, int>(OutputAngles)
+        OutputAngles = new Dictionary<string, int>(OutputAngles),
+        InputPort = InputPort.Copy(),
+        OutputPorts = OutputPorts.ToDictionary(item => item.Key, item => item.Value.Copy())
     };
+}
+
+public sealed class PortAppearance
+{
+    public string Shape { get; set; } = "Circle";
+    public int Size { get; set; } = 14;
+    public string FillColor { get; set; } = "#E6474D";
+    public int FillOpacityPercent { get; set; } = 100;
+
+    public bool IsValid() => Shape is "Circle" or "Square" or "Diamond" or "Triangle" &&
+        Size is >= 6 and <= 36 && FillOpacityPercent is >= 0 and <= 100 &&
+        FillColor is not null && Regex.IsMatch(FillColor, "^#[0-9A-Fa-f]{6}$");
+
+    public PortAppearance Copy() => (PortAppearance)MemberwiseClone();
+}
+
+internal static class PortPainter
+{
+    internal static void Draw(Graphics graphics, Point point, PortAppearance appearance, Color borderColor)
+    {
+        var half = appearance.Size / 2f;
+        var rect = new RectangleF(point.X - half, point.Y - half, appearance.Size, appearance.Size);
+        var baseColor = ColorTranslator.FromHtml(appearance.FillColor);
+        using var fill = new SolidBrush(Color.FromArgb(
+            (int)Math.Round(255 * appearance.FillOpacityPercent / 100d), baseColor));
+        using var border = new Pen(borderColor, 2f);
+        using var path = new GraphicsPath();
+        switch (appearance.Shape)
+        {
+            case "Square": path.AddRectangle(rect); break;
+            case "Diamond": path.AddPolygon([new PointF(point.X, rect.Top), new PointF(rect.Right, point.Y),
+                new PointF(point.X, rect.Bottom), new PointF(rect.Left, point.Y)]); break;
+            case "Triangle": path.AddPolygon([new PointF(point.X, rect.Top), new PointF(rect.Right, rect.Bottom),
+                new PointF(rect.Left, rect.Bottom)]); break;
+            default: path.AddEllipse(rect); break;
+        }
+        graphics.FillPath(fill, path);
+        graphics.DrawPath(border, path);
+    }
 }
 
 internal static class BlockAppearanceManager

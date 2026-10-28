@@ -35,6 +35,11 @@ internal sealed class VariableStore
 
     public VariableStore(bool asciiOnly = false) => _asciiOnly = asciiOnly;
 
+    public IReadOnlyDictionary<string, string> Snapshot()
+    {
+        lock (_gate) return new Dictionary<string, string>(_values, StringComparer.OrdinalIgnoreCase);
+    }
+
     public static bool HasReference(string text) => text.StartsWith('=') || text.Contains("\n=", StringComparison.Ordinal) ||
         ReferencePattern.IsMatch(text);
 

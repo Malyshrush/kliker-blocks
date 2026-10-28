@@ -63,8 +63,9 @@ internal static class LocalizedHelp
         return summary + "\n\n" + string.Join("\n", VirtualKeyCatalog.AllCodes()
             .Select(item => $"{item.Code,3}   0x{item.Code:X2}   {VirtualKeyCatalog.DescribeLocalized(item.Code)}"));
     }
-    public static string? Block(string kind, string language) => language == "de"
-        ? German.Value?.Blocks.GetValueOrDefault(kind) : Get(Blocks, kind, language);
+    public static string? Block(string kind, string language) =>
+        (language == "de" ? German.Value?.Blocks.GetValueOrDefault(kind) :
+            Get(Blocks, kind, language)) ?? EnglishHelp.Block(kind);
 
     private static string? Get(Dictionary<string, string[]> values, string key, string language)
     {

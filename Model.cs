@@ -146,7 +146,7 @@ public sealed class MacroRecording
     public DateTime RecordedAt { get; set; } = DateTime.Now;
     public List<MacroEvent> Events { get; set; } = [];
     public int SearchPadding { get; set; } = 20;
-    public override string ToString() => $"{Name} ({Mode}, {Events.Count} событий)";
+    public override string ToString() => $"{Name} ({UiLanguage.T(Mode)}, {Events.Count} {UiLanguage.T("событий")})";
 }
 
 public sealed class MacroEvent
@@ -163,6 +163,10 @@ public sealed class MacroEvent
     public int CaptureY { get; set; }
     public int CaptureWidth { get; set; }
     public int CaptureHeight { get; set; }
+    public string WindowTitle { get; set; } = "";
+    public string AutomationId { get; set; } = "";
+    public string ElementName { get; set; } = "";
+    public string ControlType { get; set; } = "";
 }
 
 public sealed class BlockNode
@@ -172,6 +176,7 @@ public sealed class BlockNode
     public int X { get; set; }
     public int Y { get; set; }
     public bool LogActions { get; set; }
+    public bool Breakpoint { get; set; }
     public Dictionary<string, string> Values { get; set; } = [];
     public Dictionary<string, Guid?> Links { get; set; } = [];
     public Dictionary<string, LinkAppearance> LinkStyles { get; set; } = [];
@@ -276,6 +281,19 @@ public static class BlockCatalog
         [new("Url", "URL (HTTP/HTTPS)", "https://example.com"),
          new("Headers", "Заголовки: Имя: значение, каждый с новой строки (необязательно)", ""),
          new("TimeoutMs", "Таймаут, мс", "10000"), new("Result", "Переменная результата", "response")]),
+        new("HttpPost", "HTTP POST", "Отправить текст или JSON на выбранный адрес", Color.FromArgb(70, 107, 112), ["Далее"],
+        [new("Url", "URL (HTTP/HTTPS)", "https://example.com/api"),
+         new("Body", "Тело запроса", "{}"),
+         new("ContentType", "Тип содержимого", "application/json",
+             ["application/json", "text/plain", "application/x-www-form-urlencoded"]),
+         new("Headers", "Заголовки: Имя: значение, каждый с новой строки (необязательно)", ""),
+         new("TimeoutMs", "Таймаут, мс", "10000"),
+         new("Result", "Переменная ответа", "response"),
+         new("Status", "Переменная кода HTTP", "http_status")]),
+        new("JsonValue", "Поле JSON", "Извлечь поле из JSON-строки", Color.FromArgb(70, 107, 112), ["Далее"],
+        [new("Json", "Текст JSON или ${переменная}", "{\"user\":{\"name\":\"Alex\"}}"),
+         new("Path", "Путь к полю, например user.name или items[0].id", "user.name"),
+         new("Result", "Переменная результата", "json_value")]),
         new("TranslateText", "Перевести текст", "Нужен сервис LibreTranslate или установленная локальная модель Argos", Color.FromArgb(70, 107, 112), ["Далее"],
         [new("Text", "Текст (поддерживает ${переменная})", "Hello, world!"),
          new("Source", "Исходный язык", "en", ["auto", "ru", "en", "fr", "es", "zh", "de"]),
@@ -305,6 +323,11 @@ public static class BlockCatalog
          new("Count", "Переменная количества", "count")]),
         new("Wait", "Пауза", "Ожидание в миллисекундах", Color.FromArgb(129, 105, 57), ["Далее"],
         [new("Milliseconds", "Миллисекунды", "500")]),
+        new("WaitEvent", "Ожидать событие", "Появление или закрытие окна, изменение файла", Color.FromArgb(129, 105, 57), ["Событие", "Таймаут"],
+        [new("EventType", "Тип события", "Окно появилось", ["Окно появилось", "Окно закрылось", "Файл изменился"]),
+         new("WindowTitle", "Часть заголовка окна", "Блокнот"),
+         new("Path", "Путь к отслеживаемому файлу", "watch.txt"),
+         new("TimeoutMs", "Таймаут, мс (100–3600000)", "30000")]),
         new("InputGroup", "Ввод без прерывания", "Тело выполняется в общей очереди до «Конца ветки»; освобождение автоматическое", Color.FromArgb(76, 110, 146), ["Тело", "Далее"],
         [new("MaxMs", "Максимальное время группы, мс", "10000")]),
         new("SetVariable", "Задать переменную", "Имя и текстовое значение", Color.FromArgb(66, 119, 107), ["Далее"],
@@ -458,6 +481,22 @@ public static class BlockCatalog
         new("ElementSetText", "Задать текст элемента", "WM_SETTEXT с таймаутом 500 мс", Color.FromArgb(61, 116, 157), ["Далее"],
         [new("Handle", "HWND (число или переменная)", "${element}"),
          new("Text", "Новый текст", "текст")]),
+        new("UiWait", "Дождаться элемента", "Поиск элемента Windows по UI Automation", Color.FromArgb(61, 116, 157), ["Найден", "Таймаут"],
+        [new("WindowTitle", "Часть заголовка окна (пусто = активное)", ""),
+         new("AutomationId", "AutomationId элемента", ""),
+         new("ElementName", "Имя элемента", ""),
+         new("ControlType", "Тип элемента", "Button"),
+         new("TimeoutMs", "Таймаут, мс", "10000")]),
+        new("UiAction", "Действие с элементом", "Нажать, выбрать или изменить элемент Windows", Color.FromArgb(61, 116, 157), ["Далее", "Ошибка"],
+        [new("WindowTitle", "Часть заголовка окна (пусто = активное)", ""),
+         new("AutomationId", "AutomationId элемента", ""),
+         new("ElementName", "Имя элемента", ""),
+         new("ControlType", "Тип элемента", "Button"),
+         new("Action", "Действие с элементом Windows", "Нажать",
+             ["Нажать", "Ввести текст", "Переключить", "Выбрать", "Прочитать текст"]),
+         new("Text", "Текст для ввода", ""),
+         new("Result", "Переменная результата", "ui_result"),
+         new("Error", "Переменная ошибки", "ui_error")]),
         new("MessageSend", "Послать сообщение окну", "SENDMESSAGE или POSTMESSAGE", Color.FromArgb(61, 116, 157), ["Далее"],
         [new("Handle", "HWND (число или переменная)", "${window}"),
          new("Message", "Числовой код сообщения", "1024"),
@@ -476,7 +515,9 @@ public static class BlockCatalog
          new("TimeoutMs", "Таймаут, мс (0 = без лимита)", "0")]),
         new("RunScenario", "Запустить сценарий", "Выполнить сохранённый .klb последовательно", Color.FromArgb(74, 109, 100), ["Далее"],
         [new("Path", "Файл сценария .klb", ""), new("Times", "Повторений (1–1000)", "1"),
-         new("Speed", "Скорость сценария (0,1–5,0×)", "1,0")]),
+         new("Speed", "Скорость сценария (0,1–5,0×)", "1,0"),
+         new("Inputs", "Входы: дочерняя_переменная=значение, по одному на строке", ""),
+         new("Outputs", "Выходы: родительская_переменная=дочерняя_переменная, по одному на строке", "")]),
         new("Repeat", "Повторить", "Ветка тела завершается блоком «Конец ветки»", Color.FromArgb(116, 99, 53), ["Тело", "Далее"],
         [new("Times", "Повторений", "3")]),
         new("CallSub", "Вызвать подпрограмму", "Вызов по имени, затем возврат", Color.FromArgb(77, 101, 151), ["Далее"],

@@ -316,6 +316,19 @@ internal static class BlockExampleCatalog
                 en += " The first option displays 9 units &: [] evaluates math, & joins text, and \\& prints a literal &. In properties, 11 and 22 are separate lines; graph code writes the breaks as \\n.";
                 break;
             case "HttpGet": Set("Url", "https://example.com"); break;
+            case "HttpPost":
+                Set("Url", "https://example.com/api");
+                Set("Body", "{\"name\":\"Alex\"}");
+                ru += " Замените адрес на свой тестовый сервер; POST отправит тело серверу только после запуска.";
+                en += " Replace the URL with your own test server; POST sends the body only when you run the graph.";
+                break;
+            case "JsonValue": Set("Json", "{\"user\":{\"name\":\"Alex\"}}"); Set("Path", "user.name"); break;
+            case "WaitEvent": Set("TimeoutMs", "3000"); break;
+            case "UiWait":
+            case "UiAction":
+                ru += " Перед запуском нажмите кнопку захвата элемента в свойствах блока и наведите указатель на тестовый элемент Windows.";
+                en += " Before running, capture a test Windows element from the block properties while the pointer is over it.";
+                break;
             case "RunScenario": Set("Path", "child.klb"); break;
             case "PlaySound": Set("Path", "sound.wav"); break;
             case "RunAhk": Set("Path", "example.ahk"); break;
@@ -348,7 +361,7 @@ internal static class BlockExampleCatalog
             ru += " Перед запуском активируйте безопасное тестовое окно: этот блок отправляет ввод в окно или элемент Windows.";
             en += " Focus a safe test window before running: this block sends input to a Windows window or control.";
         }
-        else if (kind is "HttpGet")
+        else if (kind is "HttpGet" or "HttpPost")
         {
             ru += " Нужен доступ к указанному сайту; замените URL для собственного запроса.";
             en += " The specified site must be reachable; replace the URL for your own request.";
