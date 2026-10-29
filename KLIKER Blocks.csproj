@@ -8,10 +8,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>Kliker.Blocks</AssemblyName>
-    <Version>1.2.0</Version>
+    <Version>1.2.1</Version>
     <ApplicationIcon>Assets\Kliker.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="ClosedXML" Version="0.105.1" />
+    <PackageReference Include="PdfPig" Version="0.1.16" />
     <Compile Remove="Assets\TranslationRuntime\**\*.cs" />
     <Compile Remove="CodeImportForm.cs" />
     <Compile Remove="publish-v*\**\*.cs" />

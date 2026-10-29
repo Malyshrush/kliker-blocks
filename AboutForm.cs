@@ -69,7 +69,10 @@ internal sealed class AboutForm : Form
     }
 
     private static string BuildReleases(Copy copy) =>
-        "v1.2.0\r\n" + (UiLanguage.Code == "ru"
+        "v1.2.1\r\n" + (UiLanguage.Code == "ru"
+            ? "Добавлены таблицы CSV и Excel, извлечение текста PDF, очередь файлов, контрольные точки сценария и настраиваемая обработка ошибок. Доступно локальное OCR через отдельно установленный Tesseract. Граф можно отправить в сообщество после просмотра кода и подтверждения в GitHub."
+            : "Added CSV and Excel tables, PDF text extraction, a file queue, scenario checkpoints and configurable error handling. Local OCR works with a separately installed Tesseract engine. Graphs can be shared with the community after reviewing their code and confirming on GitHub.") +
+        "\r\n\r\nv1.2.0\r\n" + (UiLanguage.Code == "ru"
             ? "Исправлена версия в справке. Окно «О программе» закрывается системной кнопкой. Связи получили отдельные отступы от выхода и входа и отдельные радиусы изгиба; маршрут обходит блоки."
             : "Help displays the actual app version. About closes with the window control. Connections have separate output and input distances and corner radii, and route around blocks.") +
         "\r\n\r\nv1.1.9\r\n" + (UiLanguage.Code == "ru"

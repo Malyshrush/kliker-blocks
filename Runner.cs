@@ -236,12 +236,18 @@ internal sealed class Runner(ProjectModel project, Action<string> log, Action<in
         conditionStatus?.Invoke(node.Id, active);
     }
 
-    public Task RunAsync(CancellationToken cancel)
+    public Task RunAsync(CancellationToken cancel, CheckpointState? resume = null)
     {
         _ = SpeedTime(0, _playbackSpeed);
         _variables.Set("_hwnd_self", (selfHandle?.ToInt64() ?? 0).ToString(System.Globalization.CultureInfo.InvariantCulture));
         var starts = _nodes.Values.Where(n => n.Kind == "Start").ToArray();
         if (starts.Length != 1) throw new InvalidOperationException("В проекте должен быть ровно один блок «Старт».");
+        if (resume is not null)
+        {
+            if (resume.GraphHash != CheckpointTools.GraphHash(project) || !_nodes.ContainsKey(resume.NextNode))
+                throw new InvalidOperationException("Контрольная точка не соответствует текущему графу.");
+            _variables.Restore(resume.Variables, resume.Arrays);
+        }
         var definitions = _nodes.Values.Where(n => n.Kind == "SubStart").ToArray();
         if (definitions.Any(n => string.IsNullOrWhiteSpace(n.Value("Name"))) ||
             definitions.GroupBy(n => n.Value("Name").Trim(), StringComparer.OrdinalIgnoreCase).Any(group => group.Count() > 1))
@@ -265,7 +271,8 @@ internal sealed class Runner(ProjectModel project, Action<string> log, Action<in
                 do
                 {
                     var watchedThisLap = new HashSet<Guid>();
-                    await Execute(starts[0].Id, cancel, watchedThisLap: watchedThisLap);
+                    await Execute(laps == 0 && resume is not null ? resume.NextNode : starts[0].Id,
+                        cancel, watchedThisLap: watchedThisLap);
                     PruneCycleWatches(watchedThisLap);
                     if (!repeatFromStart || Volatile.Read(ref _stopRequested) != 0) break;
                     laps++;
@@ -323,6 +330,7 @@ internal sealed class Runner(ProjectModel project, Action<string> log, Action<in
         var current = first;
         var steps = 0;
         var visited = new HashSet<Guid>();
+        var errorAttempts = new Dictionary<Guid, int>();
         watchedThisLap ??= [];
         while (current is Guid id && Volatile.Read(ref _stopRequested) == 0)
         {
@@ -664,6 +672,67 @@ internal sealed class Runner(ProjectModel project, Action<string> log, Action<in
                     current = node.Link("Далее");
                     break;
                 }
+                case "CsvTable":
+                {
+                    var path = ExternalTools.ResolvePath(node.Value("Path"), _baseDirectory);
+                    var output = node.Value("OutputPath");
+                    if (output.Length > 0) output = ExternalTools.ResolvePath(output, _baseDirectory);
+                    var delimiterText = node.Value("Delimiter", ";");
+                    if (string.IsNullOrEmpty(delimiterText))
+                        throw new InvalidOperationException(UiLanguage.T("Укажите разделитель CSV: ;, запятая или TAB."));
+                    var delimiter = delimiterText == "TAB" ? '\t' : delimiterText[0];
+                    var result = CsvTableTools.Execute(path, delimiter, node.Value("Action"),
+                        node.Int("Row", 1), node.Int("Column", 1), node.Value("Value"),
+                        node.Int("FilterColumn", 1), node.Value("FilterValue"), output);
+                    _variables.Set(node.Value("Result"), result);
+                    log(UiLanguage.Format("CSV: {0}; результат {1}", path, result));
+                    current = node.Link("Далее");
+                    break;
+                }
+                case "ExcelTable":
+                {
+                    var path = ExternalTools.ResolvePath(node.Value("Path"), _baseDirectory);
+                    var result = SpreadsheetTools.Execute(path, node.Value("Sheet"), node.Value("Action"),
+                        node.Int("Row", 1), node.Int("Column", 1), node.Value("Value"),
+                        node.Int("FilterColumn", 1), node.Value("FilterValue"));
+                    _variables.Set(node.Value("Result"), result);
+                    log(UiLanguage.Format("Excel: {0}; результат {1}", path, result));
+                    current = node.Link("Далее");
+                    break;
+                }
+                case "PdfText":
+                {
+                    var path = ExternalTools.ResolvePath(node.Value("Path"), _baseDirectory);
+                    var result = PdfTextTools.Execute(path, node.Value("Action"), node.Int("Page", 1));
+                    _variables.Set(node.Value("Result"), result);
+                    log(UiLanguage.Format("PDF: {0}; символов {1}", path, result.Length));
+                    current = node.Link("Далее");
+                    break;
+                }
+                case "FileQueue":
+                {
+                    var folder = ExternalTools.ResolvePath(node.Value("Folder"), _baseDirectory);
+                    var state = ExternalTools.ResolvePath(node.Value("StatePath"), _baseDirectory);
+                    var (file, outcome) = FileQueueTools.Execute(folder, node.Value("Mask"), state,
+                        node.Value("Action"), node.Value("CurrentFile"), DateTimeOffset.UtcNow);
+                    _variables.Set(node.Value("Result"), file);
+                    log(UiLanguage.Format("Очередь файлов: {0}; состояние {1}; файл {2}",
+                        state, outcome, file));
+                    current = node.Link(outcome == "picked" ? "Есть файл" :
+                        outcome == "empty" ? "Очередь пуста" : "Далее");
+                    break;
+                }
+                case "Checkpoint":
+                {
+                    current = node.Link("Далее");
+                    if (current is Guid next)
+                    {
+                        var path = ExternalTools.ResolvePath(node.Value("Path"), _baseDirectory);
+                        CheckpointTools.Save(path, project, next, _variables);
+                        log(UiLanguage.Format("Контрольная точка сохранена: {0}", path));
+                    }
+                    break;
+                }
                 case "IniFile":
                 {
                     var path = ExternalTools.ResolvePath(node.Value("Path"), _baseDirectory);
@@ -955,6 +1024,16 @@ internal sealed class Runner(ProjectModel project, Action<string> log, Action<in
                         return Task.CompletedTask;
                     }, cancel);
                     log("Снимок сохранён: " + path);
+                    current = node.Link("Далее");
+                    break;
+                }
+                case "OcrImage":
+                {
+                    var path = ExternalTools.ResolvePath(node.Value("Path"), _baseDirectory);
+                    var result = await OcrTools.ReadAsync(path, node.Value("Language"),
+                        node.Value("EnginePath"), node.Int("TimeoutMs", 30000), cancel);
+                    _variables.Set(node.Value("Result"), result);
+                    log(UiLanguage.Format("OCR: распознано {0} символов из {1}", result.Length, path));
                     current = node.Link("Далее");
                     break;
                 }
@@ -1425,6 +1504,7 @@ internal sealed class Runner(ProjectModel project, Action<string> log, Action<in
                 log(BlockTrace.Completed(sourceNode, current, traceOutput));
                 log(BlockTrace.Details(sourceNode, node, traceScope.Changes));
             }
+            errorAttempts.Remove(id);
             if (_stepRemaining > 0) _stepRemaining--;
             }
             catch (SubReturnSignal)
@@ -1443,7 +1523,25 @@ internal sealed class Runner(ProjectModel project, Action<string> log, Action<in
             {
                 if (sourceNode.LogActions) log(BlockTrace.Failed(sourceNode, error));
                 if (sourceNode.LogActions && resolvedNode is not null) log(BlockTrace.Details(sourceNode, resolvedNode, traceScope.Changes));
-                throw;
+                var attempt = errorAttempts.GetValueOrDefault(id);
+                var decision = BlockErrorPolicy.Decide(sourceNode, attempt);
+                if (decision.Retry)
+                {
+                    errorAttempts[id] = attempt + 1;
+                    visited.Remove(id);
+                    log(UiLanguage.Format("Блок: повтор после ошибки ({0}/{1}): {2}",
+                        attempt + 1, sourceNode.Int("__ErrorRetries"), error.Message));
+                    await DelayWatchingScopeAsync(sourceNode.Int("__ErrorDelayMs"), cancel);
+                    current = id;
+                    continue;
+                }
+                errorAttempts.Remove(id);
+                if (decision.Throw) throw;
+                _variables.Set("_last_error", error.Message);
+                log(UiLanguage.Format("Блок: ошибка обработана; переход к {0}: {1}",
+                    decision.Next?.ToString() ?? "end", error.Message));
+                current = decision.Next;
+                continue;
             }
         }
     }

@@ -111,6 +111,31 @@ internal static class Program
             File.WriteAllText(args[1], System.Text.Json.JsonSerializer.Serialize(export));
             return;
         }
+        if (args.Length == 3 && args[0] == "--export-site-catalog")
+        {
+            var language = args[1];
+            if (language is not ("ru" or "en")) throw new ArgumentException("Catalog locale must be ru or en.");
+            UiLanguage.Configure(language);
+            var catalog = BlockCatalog.All.Select(spec =>
+            {
+                var example = BlockExampleCatalog.For(spec.Kind);
+                return new
+                {
+                    kind = spec.Kind,
+                    category = UiLanguage.T(MainForm.CategoryFor(spec.Kind)),
+                    title = UiLanguage.T(spec.Title),
+                    hint = UiLanguage.T(spec.Hint),
+                    help = language == "ru" ? AppHelp.For(spec.Kind) : EnglishHelp.Block(spec.Kind) ?? UiLanguage.T(spec.Hint),
+                    note = language == "ru" ? example.NoteRu : example.NoteEn,
+                    outputs = spec.Outputs.Select(UiLanguage.T).ToArray(),
+                    fields = spec.Fields.Select(field => new { key = field.Key, label = UiLanguage.T(field.Label),
+                        defaultValue = field.Default, options = field.Options?.Select(UiLanguage.T).ToArray() }).ToArray(),
+                    code = example.Code
+                };
+            }).ToArray();
+            File.WriteAllText(args[2], System.Text.Json.JsonSerializer.Serialize(catalog));
+            return;
+        }
         if (args.Contains("--speech-smoke"))
         {
             Console.WriteLine("Windows voices: " + string.Join(", ", WindowsSpeech.InstalledVoices()

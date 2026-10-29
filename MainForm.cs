@@ -133,6 +133,7 @@ internal sealed class MainForm : Form
         AddMenuItem(fileMenu, "Новый", (_, _) => NewProject());
         AddMenuItem(fileMenu, "Открыть…", (_, _) => OpenProject());
         AddMenuItem(fileMenu, "Сохранить…", (_, _) => SaveProject());
+        AddMenuItem(fileMenu, "Поделиться графом…", (_, _) => ShareProject());
         AddMenuItem(fileMenu, "Проверить совместимость графа…", (_, _) => CheckProjectCompatibility());
         var editorMenu = new ToolStripMenuItem("Редактор");
         AddMenuItem(editorMenu, "Переключить блоки / код Kliker Blocks", (_, _) => SwitchEditorView(!_codeViewActive));
@@ -165,6 +166,7 @@ internal sealed class MainForm : Form
         _runModeItem.Click += (_, _) => ConfigureRunMode();
         scenarioMenu.DropDownItems.Add(_runModeItem);
         AddMenuItem(scenarioMenu, "Имя сценария…", (_, _) => ConfigureScriptName());
+        AddMenuItem(scenarioMenu, "Продолжить с контрольной точки…", async (_, _) => await ResumeFromCheckpoint());
         AddMenuItem(scenarioMenu, "Привязка к окну…", (_, _) => ConfigureWindowScope());
         _showIndicatorItem.Checked = _project.ShowIndicator;
         _showIndicatorItem.CheckedChanged += (_, _) =>
@@ -335,6 +337,10 @@ internal sealed class MainForm : Form
         _revertCodeButton.Click += (_, _) => LoadGraphCode();
         modeBar.Items.AddRange([_visualModeButton, _codeModeButton, _applyCodeButton,
             _revertCodeButton, new ToolStripSeparator(), _codeStatus]);
+        var shareButton = new ToolStripButton(UiLanguage.T("Поделиться графом…"));
+        shareButton.Click += (_, _) => ShareProject();
+        modeBar.Items.Add(new ToolStripSeparator());
+        modeBar.Items.Add(shareButton);
         var editorPopout = new Button
         {
             Text = "↗", Width = 28, Height = 28, FlatStyle = FlatStyle.Flat,
@@ -654,9 +660,9 @@ internal sealed class MainForm : Form
         "IfExpression" => "Условия «Если» и поиск",
         "IfMoved" or "IfPixel" or "WaitPixel" or "IfKeyDown" or "FindColor" or "FindImage" or "BufferFindColor" or "BufferFindImage" or "IfWindow" => "Условия «Если» и поиск",
         "WatchCursor" or "MoveCursor" or "MoveRelative" or "Click" or "MouseButton" or "Wheel" or "Key" or "KeyState" or "VirtualKey" or "TypeText" or "ClipboardSet" or "InputGroup" => "Мышь и клавиатура",
-        "ClipboardGet" or "TextFile" or "TextFileArray" or "IniFile" or "DirectoryList" or "HttpGet" or "HttpPost" or "JsonValue" or
+        "ClipboardGet" or "TextFile" or "TextFileArray" or "CsvTable" or "ExcelTable" or "PdfText" or "FileQueue" or "Checkpoint" or "IniFile" or "DirectoryList" or "HttpGet" or "HttpPost" or "JsonValue" or
         "TranslateText" or "DetectLanguage" or "LanguagePair" or "TranslateArray" => "Данные и файлы",
-        "Screenshot" or "BufferCapture" or "BufferPixel" or "BufferCount" or "BufferHash" or "BufferReplace" or "BufferScanColor" or "BufferScanImage" or "BufferSave" or "MoveFound" or "ActivateWindow" or "MoveWindow" or "WindowFind" or "WindowInfo" or "WindowAction" or "ElementAtPoint" or "ElementInfo" or "ElementSetText" or "UiWait" or "UiAction" or "MessageSend" or "MessageReceive" => "Экран и окна",
+        "Screenshot" or "OcrImage" or "BufferCapture" or "BufferPixel" or "BufferCount" or "BufferHash" or "BufferReplace" or "BufferScanColor" or "BufferScanImage" or "BufferSave" or "MoveFound" or "ActivateWindow" or "MoveWindow" or "WindowFind" or "WindowInfo" or "WindowAction" or "ElementAtPoint" or "ElementInfo" or "ElementSetText" or "UiWait" or "UiAction" or "MessageSend" or "MessageReceive" => "Экран и окна",
         _ => "Внешние программы"
     };
 
@@ -1580,6 +1586,42 @@ internal sealed class MainForm : Form
         breakpoint.CheckedChanged += (_, _) =>
         { node.Breakpoint = breakpoint.Checked; _graph.Invalidate(); };
         _fields.Controls.Add(breakpoint);
+        if (node.Kind != "Description")
+        {
+            _fields.Controls.Add(new Label { Text = UiLanguage.T("При ошибке блока"), Width = 250, Height = 23 });
+            var errorPolicies = new[] { BlockErrorPolicy.Stop, BlockErrorPolicy.Skip, BlockErrorPolicy.Jump };
+            var errorChoice = new ComboBox { Width = 250, DropDownStyle = ComboBoxStyle.DropDownList };
+            errorChoice.Items.AddRange(errorPolicies.Select(UiLanguage.T).Cast<object>().ToArray());
+            errorChoice.SelectedIndex = Math.Max(0, Array.IndexOf(errorPolicies,
+                node.Value("__ErrorPolicy", BlockErrorPolicy.Stop)));
+            errorChoice.SelectedIndexChanged += (_, _) =>
+                node.Values["__ErrorPolicy"] = errorPolicies[errorChoice.SelectedIndex];
+            _fields.Controls.Add(errorChoice);
+            _fields.Controls.Add(new Label { Text = UiLanguage.T("Повторов перед решением (0–10)"), Width = 250, Height = 23 });
+            var errorRetries = new NumericUpDown { Width = 250, Minimum = 0, Maximum = 10,
+                Value = Math.Clamp(node.Int("__ErrorRetries", 0), 0, 10) };
+            errorRetries.ValueChanged += (_, _) =>
+                node.Values["__ErrorRetries"] = ((int)errorRetries.Value).ToString();
+            _fields.Controls.Add(errorRetries);
+            _fields.Controls.Add(new Label { Text = UiLanguage.T("Задержка повтора, мс (0–60000)"), Width = 250, Height = 23 });
+            var errorDelay = new NumericUpDown { Width = 250, Minimum = 0, Maximum = 60000,
+                Value = Math.Clamp(node.Int("__ErrorDelayMs", 0), 0, 60000) };
+            errorDelay.ValueChanged += (_, _) =>
+                node.Values["__ErrorDelayMs"] = ((int)errorDelay.Value).ToString();
+            _fields.Controls.Add(errorDelay);
+            _fields.Controls.Add(new Label { Text = UiLanguage.T("Цель перехода при ошибке"), Width = 250, Height = 23 });
+            var targets = _project.Nodes.Where(item => item.Id != node.Id && item.Kind != "Description").ToArray();
+            var errorTarget = new ComboBox { Width = 250, DropDownStyle = ComboBoxStyle.DropDownList };
+            errorTarget.Items.Add(UiLanguage.T("Не выбрано"));
+            errorTarget.Items.AddRange(targets.Select(item =>
+                UiLanguage.T(BlockCatalog.Get(item.Kind).Title) + " [" + item.Id.ToString("N")[..8] + "]").Cast<object>().ToArray());
+            errorTarget.SelectedIndex = Math.Max(0, Array.FindIndex(targets,
+                item => item.Id.ToString() == node.Value("__ErrorTarget")) + 1);
+            errorTarget.SelectedIndexChanged += (_, _) =>
+                node.Values["__ErrorTarget"] = errorTarget.SelectedIndex == 0 ? "" :
+                    targets[errorTarget.SelectedIndex - 1].Id.ToString();
+            _fields.Controls.Add(errorTarget);
+        }
         var appearanceButton = new Button { Text = UiLanguage.T("Оформление блока…"),
             Width = 250, Height = 36, Margin = new Padding(0, 2, 0, 8) };
         appearanceButton.Click += (_, _) =>
@@ -1907,7 +1949,18 @@ internal sealed class MainForm : Form
         }
     }
 
-    private async Task RunProject()
+    private async Task ResumeFromCheckpoint()
+    {
+        if (_cancel is not null || !TryApplyGraphCode()) return;
+        using var dialog = new OpenFileDialog { Filter = UiLanguage.T("Контрольная точка JSON (*.json)|*.json"),
+            InitialDirectory = _file is null ? ProjectCompatibility.UserProjectDirectory : Path.GetDirectoryName(_file) };
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        try { await RunProject(CheckpointTools.Load(dialog.FileName, _project)); }
+        catch (Exception error) { MessageBox.Show(this, error.Message,
+            UiLanguage.T("Продолжить с контрольной точки"), MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+    }
+
+    private async Task RunProject(CheckpointState? resume = null)
     {
         if (_cancel != null) return;
         if (_showcaseWindow?.IsRunning == true)
@@ -2029,7 +2082,7 @@ internal sealed class MainForm : Form
                 showcaseStep: showcaseSession is null ? null :
                     (action, variables, cancel) => showcaseSession.ExecuteAsync(action, variables, cancel),
                 debugState: (id, variables, paused) => UI(() => UpdateDebugState(id, variables, paused)));
-            await _runner.RunAsync(_cancel.Token);
+            await _runner.RunAsync(_cancel.Token, resume);
             AppendLog("Сценарий завершён");
         }
         catch (OperationCanceledException) { AppendLog("Остановлено пользователем"); }
@@ -2422,6 +2475,14 @@ internal sealed class MainForm : Form
             AppendLog("Проект сохранён: " + _file);
         }
         catch (Exception ex) { MessageBox.Show(ex.Message, "Не удалось сохранить проект"); }
+    }
+
+    private void ShareProject()
+    {
+        if (!TryApplyGraphCode() || !CheckAsciiNames(_project)) return;
+        var code = GraphCodeCodec.Serialize(_project);
+        using var dialog = new ShareGraphForm(_project.ScriptName, code);
+        dialog.ShowDialog(this);
     }
 
     private void CheckProjectCompatibility()

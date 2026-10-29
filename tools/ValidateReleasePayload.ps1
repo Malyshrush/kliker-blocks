@@ -1,9 +1,10 @@
-param([string]$Version = '1.2.0')
+param([string]$Version = '1.2.1')
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $root = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 $release = Join-Path $root ('publish-v' + ($Version -replace '\.', ''))
 & (Join-Path $PSScriptRoot 'ValidateVersion.ps1') -Version $Version
+& (Join-Path $PSScriptRoot 'UpdateFeatureInventory.ps1') -Check
 function Test-Entry([string]$relative) {
     $name = $relative.Replace('\', '/')
     if ($name -match '(^|/)(computer-capabilities\.json|\.env|appsettings?\.json|LanguageModels|Showcase)(/|$)' -or

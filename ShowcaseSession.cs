@@ -7,7 +7,7 @@ namespace KlikerBlocks;
 
 internal sealed class ShowcaseSession(Form owner, Action<string> log) : IDisposable
 {
-    internal const int CharacterDelayMs = 32;
+    internal const int CharacterDelayMs = 80;
     internal const int LineDelayMs = 144;
     private readonly List<Process> _processes = [];
     private ShowcaseQuestionForm? _question;
@@ -694,7 +694,8 @@ internal sealed class ShowcaseSession(Form owner, Action<string> log) : IDisposa
                     await Task.Delay(230, cancel);
                     return;
                 }
-                // Give Notepad time to process each Unicode key event; visible typing is 4x slower than v0.66.
+                // Modern Notepad may process Unicode input after SendInput returns. Leave enough
+                // time between key pairs so a later pair does not overtake the previous one.
                 await Task.Delay(CharacterDelayMs, cancel);
             }
             if (i < lines.Length - 1) { EnsureDemoNotepadTabSelected(); Press(0x0D); }

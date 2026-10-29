@@ -40,6 +40,20 @@ internal sealed class VariableStore
         lock (_gate) return new Dictionary<string, string>(_values, StringComparer.OrdinalIgnoreCase);
     }
 
+    internal Dictionary<string, Dictionary<int, string>> SnapshotArrays()
+    {
+        lock (_gate) return _arrays.ToDictionary(pair => pair.Key,
+            pair => pair.Value.ToDictionary(item => item.Key, item => item.Value), StringComparer.OrdinalIgnoreCase);
+    }
+
+    internal void Restore(IReadOnlyDictionary<string, string> values,
+        IReadOnlyDictionary<string, Dictionary<int, string>> arrays)
+    {
+        foreach (var (name, value) in values) Set(name, value);
+        foreach (var (name, items) in arrays)
+            foreach (var (index, value) in items) SetArray(name, index, value);
+    }
+
     public static bool HasReference(string text) => text.StartsWith('=') || text.Contains("\n=", StringComparison.Ordinal) ||
         ReferencePattern.IsMatch(text);
 

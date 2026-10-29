@@ -36,11 +36,37 @@ internal static class SelfTest
             AppIdentity.TitleFor(new Version(2, 3, 4)) == "Kliker Blocks v2.3.4",
             "main-window title follows the running assembly version");
         Assert(AppHelp.Introduction.Contains(AppIdentity.VersionLabel, StringComparison.Ordinal) &&
-            EnglishHelp.Overview.Contains(AppIdentity.VersionLabel, StringComparison.Ordinal),
-            "Russian and English help show the current assembly version");
+            EnglishHelp.Overview.Contains(AppIdentity.VersionLabel, StringComparison.Ordinal) &&
+            ShowcaseText.Get("help_overview").Contains(AppIdentity.VersionLabel, StringComparison.Ordinal) &&
+            !ShowcaseText.Get("help_overview").Contains("1.1.7", StringComparison.Ordinal),
+            "all Russian help overview sources show the current assembly version");
         Assert(AutostartSettings.CommandFor(@"C:\Program Files\Kliker Blocks\Kliker.Blocks.exe") ==
             "\"C:\\Program Files\\Kliker Blocks\\Kliker.Blocks.exe\" --windows-startup",
             "autostart command quotes executable paths containing spaces");
+        var shareCode = GraphCodeCodec.Serialize(ProjectModel.CreateSample());
+        var share = GraphShareDraft.Build("My graph", "Safe example", shareCode);
+        Assert(share.Complete && share.Url.Contains("discussions/new?", StringComparison.Ordinal) &&
+            Uri.UnescapeDataString(share.Url).Contains(shareCode.TrimEnd(), StringComparison.Ordinal) &&
+            Uri.UnescapeDataString(share.Url).Contains("Графы пользователей", StringComparison.Ordinal),
+            "share draft contains the full graph and user graph category");
+        var oversized = GraphShareDraft.Build("Large graph", "", new string('x', 12000));
+        Assert(!oversized.Complete && oversized.Url.Length < GraphShareDraft.MaximumPrefilledUrlLength,
+            "large graph draft asks for explicit clipboard paste instead of truncating graph");
+        var failing = BlockCatalog.Create("CsvTable", 0, 0);
+        var recovery = Guid.NewGuid();
+        failing.Values["__ErrorPolicy"] = BlockErrorPolicy.Jump;
+        failing.Values["__ErrorRetries"] = "2";
+        failing.Values["__ErrorDelayMs"] = "500";
+        failing.Values["__ErrorTarget"] = recovery.ToString();
+        Assert(BlockErrorPolicy.Decide(failing, 0).Retry &&
+            BlockErrorPolicy.Decide(failing, 1).Retry &&
+            BlockErrorPolicy.Decide(failing, 2).Next == recovery,
+            "per-block retry count ends at configured error target");
+        var policyProject = new ProjectModel { Nodes = [failing, BlockCatalog.Create("Start", 200, 0)] };
+        var parsedPolicy = GraphCodeCodec.Parse(GraphCodeCodec.Serialize(policyProject));
+        Assert(parsedPolicy[0].Value("__ErrorTarget") == recovery.ToString() &&
+            parsedPolicy[0].Value("__ErrorRetries") == "2",
+            "error settings survive code editor round trip");
         var release119Ui = new[] { "Автозапуск и расписание сценариев…", "При входе в Windows",
             "Запускать сценарий", "Задержка после входа, секунд", "Запуск по расписанию",
             "Добавить…", "Изменить…", "Включить / выключить", "Удалить", "Новое расписание",
@@ -49,6 +75,12 @@ internal static class SelfTest
             "Контрольная сумма установщика не совпала.", "Проверить совместимость графа…",
             "Проверка совместимости", "Граф создан в более новой версии формата ({0}). Обновите Kliker Blocks." };
         UiLanguage.Configure("en");
+        Assert(new[] { "Поделиться графом…", "Название графа", "Описание для сообщества",
+            "Открыть публикацию в GitHub", "Копировать код графа" }.All(UiLanguage.Has),
+            "graph sharing controls are localized in English");
+        Assert(ShowcaseText.Get("help_overview").Contains(AppIdentity.VersionLabel, StringComparison.Ordinal) &&
+            !ShowcaseText.Get("help_overview").Contains("1.1.7", StringComparison.Ordinal),
+            "English help overview shows the current assembly version");
         Assert(release119Ui.All(UiLanguage.Has), "new 1.1.9 controls and errors are localized in English");
         UiLanguage.Configure("ru");
         Assert(Math.Abs(LinkSelectionGeometry.HitRadius(1, 1) - 14) < 0.01 &&
@@ -156,6 +188,11 @@ internal static class SelfTest
         Console.WriteLine("Translation tests passed.");
         TestShowcaseGraph();
         Console.WriteLine("Showcase graph tests passed.");
+        TestCsvTable();
+        TestDocumentTables();
+        TestFileQueue();
+        TestCheckpoint();
+        TestOcrValidation();
         TestScenarioPlayback();
         Console.WriteLine("Scenario tests passed.");
         using (var statusIcon = TrayStatusIcon.Create(SystemIcons.Application, Color.LimeGreen))
@@ -2573,6 +2610,144 @@ internal static class SelfTest
         finally { Directory.Delete(folder, recursive: true); }
     }
 
+    private static void TestOcrValidation()
+    {
+        var directory = Path.Combine(Environment.CurrentDirectory, "obj", "KlikerBlocks-ocr-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var image = Path.Combine(directory, "screen.png");
+            File.WriteAllBytes(image, [137, 80, 78, 71]);
+            var invalidLanguage = false;
+            try { OcrTools.ReadAsync(image, "eng;rm", "", 30000, CancellationToken.None)
+                    .GetAwaiter().GetResult(); }
+            catch (InvalidOperationException) { invalidLanguage = true; }
+            var missingEngine = false;
+            try { OcrTools.ResolveEngine(Path.Combine(directory, "missing.exe")); }
+            catch (FileNotFoundException) { missingEngine = true; }
+            Assert(invalidLanguage && missingEngine,
+                "OCR rejects command arguments and reports missing local engine");
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    private static void TestCheckpoint()
+    {
+        var directory = Path.Combine(Environment.CurrentDirectory, "obj", "KlikerBlocks-checkpoint-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var project = ProjectModel.CreateSample();
+            var next = project.Nodes[1].Id;
+            var variables = new VariableStore(true);
+            variables.Set("counter", "7");
+            variables.SetArray("items", 0, "first");
+            var path = Path.Combine(directory, "checkpoint.json");
+            CheckpointTools.Save(path, project, next, variables);
+            var loaded = CheckpointTools.Load(path, project);
+            var restored = new VariableStore(true);
+            restored.Restore(loaded.Variables, loaded.Arrays);
+            Assert(loaded.NextNode == next && restored.Get("counter") == "7" &&
+                restored.GetArray("items", 0) == "first", "checkpoint restores block position and variables");
+            project.Nodes[1].X++;
+            var rejected = false;
+            try { CheckpointTools.Load(path, project); }
+            catch (InvalidDataException) { rejected = true; }
+            Assert(rejected && File.Exists(path), "changed graph rejects checkpoint without deleting it");
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    private static void TestFileQueue()
+    {
+        var directory = Path.Combine(Environment.CurrentDirectory, "obj", "KlikerBlocks-queue-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            File.WriteAllText(Path.Combine(directory, "a.txt"), "a");
+            File.WriteAllText(Path.Combine(directory, "b.txt"), "b");
+            var state = Path.Combine(directory, "state.json");
+            var now = new DateTimeOffset(2030, 1, 1, 0, 0, 0, TimeSpan.Zero);
+            var first = FileQueueTools.Execute(directory, "*.txt", state, "Взять следующий", "", now);
+            var second = FileQueueTools.Execute(directory, "*.txt", state, "Взять следующий", "", now);
+            Assert(first.Outcome == "picked" && second.Outcome == "picked" &&
+                Path.GetFileName(first.File) == "a.txt" && Path.GetFileName(second.File) == "b.txt",
+                "file queue leases distinct files in stable order");
+            FileQueueTools.Execute(directory, "*.txt", state, "Отметить готовым", first.File, now);
+            var empty = FileQueueTools.Execute(directory, "*.txt", state, "Взять следующий", "", now);
+            Assert(empty.Outcome == "empty" && File.Exists(state) &&
+                FileQueueTools.Execute(directory, "*.txt", state, "Взять следующий", "", now.AddMinutes(16)).File == second.File,
+                "file queue persists finished state and recovers expired leases");
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    private static void TestDocumentTables()
+    {
+        var directory = Path.Combine(Environment.CurrentDirectory, "obj", "KlikerBlocks-documents-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var book = Path.Combine(directory, "test.xlsx");
+            SpreadsheetTools.Execute(book, "Sheet1", "Записать ячейку", 1, 1, "Hello", 1, "");
+            SpreadsheetTools.Execute(book, "Sheet1", "Записать ячейку", 2, 1, "World", 1, "");
+            Assert(SpreadsheetTools.Execute(book, "", "Прочитать ячейку", 1, 1, "", 1, "") == "Hello" &&
+                SpreadsheetTools.Execute(book, "", "Количество строк", 1, 1, "", 1, "") == "2" &&
+                SpreadsheetTools.Execute(book, "", "Найти строки", 1, 1, "", 1, "World") == "2",
+                "Excel cell write, read, row count and search round trip");
+
+            var pdf = Path.Combine(directory, "test.pdf");
+            var content = "BT /F1 12 Tf 50 150 Td (Hello PDF) Tj ET";
+            var objects = new[] {
+                "<< /Type /Catalog /Pages 2 0 R >>",
+                "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+                "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+                $"<< /Length {content.Length} >>\nstream\n{content}\nendstream"
+            };
+            var text = new System.Text.StringBuilder("%PDF-1.4\n");
+            var offsets = new List<int> { 0 };
+            for (var i = 0; i < objects.Length; i++)
+            {
+                offsets.Add(text.Length);
+                text.Append($"{i + 1} 0 obj\n{objects[i]}\nendobj\n");
+            }
+            var startXref = text.Length;
+            text.Append($"xref\n0 {offsets.Count}\n0000000000 65535 f \n");
+            foreach (var offset in offsets.Skip(1)) text.Append($"{offset:D10} 00000 n \n");
+            text.Append($"trailer\n<< /Size {offsets.Count} /Root 1 0 R >>\nstartxref\n{startXref}\n%%EOF\n");
+            File.WriteAllText(pdf, text.ToString(), System.Text.Encoding.ASCII);
+            Assert(PdfTextTools.Execute(pdf, "Количество страниц", 1) == "1" &&
+                PdfTextTools.Execute(pdf, "Текст страницы", 1).Contains("Hello PDF", StringComparison.Ordinal),
+                "PDF page count and text extraction from real PDF bytes");
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    private static void TestCsvTable()
+    {
+        var parsed = CsvTableTools.Parse("name;note\r\nAlex;\"one;two\"\r\nBea;\"line 1\r\nline 2\"\r\n", ';');
+        Assert(parsed.Count == 3 && parsed[1][1] == "one;two" &&
+            parsed[2][1] == "line 1\r\nline 2" &&
+            CsvTableTools.Parse(CsvTableTools.Serialize(parsed, ';'), ';')[2][1] == parsed[2][1],
+            "CSV quoted delimiters and embedded newlines round-trip");
+        var folder = Path.Combine(Environment.CurrentDirectory, "obj", "KlikerBlocks-csv-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        try
+        {
+            var input = Path.Combine(folder, "input.csv");
+            var output = Path.Combine(folder, "output.csv");
+            File.WriteAllText(input, "name;city\r\nAlex;Paris\r\nBea;Berlin\r\n");
+            Assert(CsvTableTools.Execute(input, ';', "Прочитать ячейку", 2, 2, "", 1, "", "") == "Paris" &&
+                CsvTableTools.Execute(input, ';', "Количество строк", 1, 1, "", 1, "", "") == "3",
+                "CSV reads a cell and counts rows");
+            CsvTableTools.Execute(input, ';', "Записать ячейку", 3, 2, "Rome", 1, "", "");
+            Assert(CsvTableTools.Execute(input, ';', "Отобрать строки", 1, 1, "", 2, "Rome", output) == "1" &&
+                CsvTableTools.Read(output, ';')[0][0] == "Bea", "CSV writes and filters rows");
+        }
+        finally { Directory.Delete(folder, true); }
+    }
+
     private static void TestShowcaseGraph()
     {
         UiLanguage.Configure("ru");
@@ -2596,8 +2771,8 @@ internal static class SelfTest
             !ShowcaseSession.SameText("One\nTw", "One\nTwo") &&
             !ShowcaseSession.SameText("Intro\nLong phrase\nLong phrase", "Intro\nLong phrase"),
             "showcase full-document verification tolerates line endings but detects missing and duplicated text");
-        Assert(ShowcaseSession.CharacterDelayMs == 32 && ShowcaseSession.LineDelayMs == 144,
-            "showcase visible typing is twice as slow as v0.67");
+        Assert(ShowcaseSession.CharacterDelayMs >= 80 && ShowcaseSession.LineDelayMs >= 144,
+            "showcase leaves enough time between Unicode key pairs for Notepad");
         Assert(ShowcaseSession.ExpectedAfterAppend("Intro\nQuote", "Translation") ==
             "Intro\nQuote\nTranslation" &&
             !ShowcaseSession.SameText("Intro\nQuote\nTransltion",

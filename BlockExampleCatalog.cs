@@ -52,7 +52,7 @@ internal static class BlockExampleCatalog
             if (kind is "BufferFindImage" or "BufferScanImage")
             {
                 var template = Add("Screenshot", 1, 1);
-                template.Values["Path"] = Path.Combine(Path.GetTempPath(), "KlikerBlocks-help-template.png");
+                template.Values["Path"] = "KlikerBlocks-help-template.png";
                 template.Values["Right"] = "100";
                 template.Values["Bottom"] = "100";
                 Link(start, "Далее", template);
@@ -103,7 +103,7 @@ internal static class BlockExampleCatalog
             Link(start, "Далее", item);
             before = item;
             featured.Values["Action"] = "Записать массив";
-            featured.Values["Path"] = Path.Combine(Path.GetTempPath(), "KlikerBlocks-help-lines.txt");
+            featured.Values["Path"] = "KlikerBlocks-help-lines.txt";
         }
         else if (kind == "TranslateArray")
         {
@@ -125,7 +125,7 @@ internal static class BlockExampleCatalog
         else if (kind == "FindImage")
         {
             var template = Add("Screenshot", 1);
-            template.Values["Path"] = Path.Combine(Path.GetTempPath(), "KlikerBlocks-help-template.png");
+            template.Values["Path"] = "KlikerBlocks-help-template.png";
             template.Values["Right"] = "100";
             template.Values["Bottom"] = "100";
             Link(start, "Далее", template);
@@ -277,8 +277,39 @@ internal static class BlockExampleCatalog
             case "WatchCursor": Set("DurationMs", "2000"); Set("ActivationMode", "Сразу"); Set("RequiredHold", "Нет"); break;
             case "MoveRelative": Set("DeltaX", "15"); Set("DeltaY", "0"); break;
             case "ClipboardSet": Set("Text", "Kliker Blocks example"); break;
-            case "TextFile": Set("Path", Path.Combine(Path.GetTempPath(), "KlikerBlocks-help-example.txt")); Set("Action", "Добавить строку"); Set("Value", "Hello from Kliker Blocks"); break;
-            case "IniFile": Set("Path", Path.Combine(Path.GetTempPath(), "KlikerBlocks-help-example.ini")); Set("Action", "Записать"); Set("Value", "Kliker Blocks"); break;
+            case "TextFile": Set("Path", "KlikerBlocks-help-example.txt"); Set("Action", "Добавить строку"); Set("Value", "Hello from Kliker Blocks"); break;
+            case "CsvTable":
+                Set("Path", "KlikerBlocks-help-example.csv");
+                Set("Action", "Записать ячейку"); Set("Value", "Hello CSV");
+                ru += " Блок создаст CSV в папке сохранённого проекта и запишет значение в первую ячейку; путь виден в свойствах.";
+                en += " The block creates a CSV beside the saved project and writes its first cell; the path is visible in properties.";
+                break;
+            case "ExcelTable":
+                Set("Path", "KlikerBlocks-help-example.xlsx");
+                Set("Action", "Записать ячейку"); Set("Value", "Hello Excel");
+                ru += " Блок создаст .xlsx в папке сохранённого проекта и запишет значение в A1.";
+                en += " The block creates an .xlsx beside the saved project and writes a value to A1.";
+                break;
+            case "PdfText":
+                Set("Action", "Количество страниц");
+                ru += " Перед запуском выберите существующий PDF в свойствах блока; результат запишется в pdf_result.";
+                en += " Select an existing PDF in block properties before running; the page count is stored in pdf_result.";
+                break;
+            case "FileQueue":
+                Set("Folder", "."); Set("StatePath", "KlikerBlocks-help-queue.json");
+                ru += " Блок ищет *.txt в папке сохранённого проекта; очередь запоминает выданный файл в отдельном JSON. Для настоящей обработки подключите следующий блок и отметку выполнения.";
+                en += " The block finds *.txt beside the saved project and tracks leased files in a separate JSON. Connect processing and a done marker for a real workflow.";
+                break;
+            case "Checkpoint":
+                Set("Path", "KlikerBlocks-help-checkpoint.json");
+                ru += " После сохранения запустите «Сценарий → Продолжить с контрольной точки…» с неизменённым графом.";
+                en += " After saving, use Scenario → Resume from checkpoint with the same unchanged graph.";
+                break;
+            case "OcrImage":
+                ru += " Перед запуском выберите изображение и установите Tesseract с языком eng; движок не входит в выпуск.";
+                en += " Choose an image and install Tesseract with eng before running; the engine is not bundled.";
+                break;
+            case "IniFile": Set("Path", "KlikerBlocks-help-example.ini"); Set("Action", "Записать"); Set("Value", "Kliker Blocks"); break;
             case "DirectoryList": Set("Path", "."); Set("Mask", "*.txt"); break;
             case "IfVariable": Set("Value", "2"); break;
             case "IfExpression":
@@ -293,8 +324,8 @@ internal static class BlockExampleCatalog
             case "SetVariableByName": Set("Value", "changed"); break;
             case "ArraySet": Set("Value", "first item"); break;
             case "ArrayAction": Set("Value", "new item"); break;
-            case "Screenshot": Set("Path", Path.Combine(Path.GetTempPath(), "KlikerBlocks-help-screen.png")); break;
-            case "BufferSave": Set("Path", Path.Combine(Path.GetTempPath(), "KlikerBlocks-help-buffer.png")); break;
+            case "Screenshot": Set("Path", "KlikerBlocks-help-screen.png"); break;
+            case "BufferSave": Set("Path", "KlikerBlocks-help-buffer.png"); break;
             case "WindowFind": Set("Title", "Kliker Blocks"); break;
             case "IfWindow": Set("Title", AppIdentity.Title); break;
             case "ActivateWindow": Set("Title", AppIdentity.Title); break;
@@ -378,6 +409,11 @@ internal static class BlockExampleCatalog
         "SetVariable" or "DefineVariable" or "SetVariableByName" or "MathVariable" => "Значение counter: ${counter}",
         "ClipboardGet" => "Прочитано из буфера: ${text}",
         "TextFile" or "IniFile" => "Операция с файлом выполнена; результат: ${result}",
+        "CsvTable" => "Результат CSV: ${csv_result}",
+        "ExcelTable" => "Результат Excel: ${excel_result}",
+        "PdfText" => "Страниц PDF: ${pdf_result}",
+        "OcrImage" => "Распознано: ${ocr_text}",
+        "FileQueue" => "Очередь: ${queue_file}",
         "TextFileArray" or "DirectoryList" or "TranslateArray" => "Количество элементов: ${count}",
         "StringSplit" => "Частей строки: ${count}",
         "BufferPixel" => "Цвет пикселя: ${color}",
@@ -404,6 +440,11 @@ internal static class BlockExampleCatalog
         "SetVariable" or "DefineVariable" or "SetVariableByName" or "MathVariable" => "counter value: ${counter}",
         "ClipboardGet" => "Clipboard text: ${text}",
         "TextFile" or "IniFile" => "File operation completed; result: ${result}",
+        "CsvTable" => "CSV result: ${csv_result}",
+        "ExcelTable" => "Excel result: ${excel_result}",
+        "PdfText" => "PDF pages: ${pdf_result}",
+        "OcrImage" => "Recognized text: ${ocr_text}",
+        "FileQueue" => "Queue file: ${queue_file}",
         "TextFileArray" or "DirectoryList" or "TranslateArray" => "Element count: ${count}",
         "StringSplit" => "String parts: ${count}",
         "BufferPixel" => "Pixel color: ${color}",
