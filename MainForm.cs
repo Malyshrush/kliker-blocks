@@ -1525,10 +1525,14 @@ internal sealed class MainForm : Form
         }
         AddDistance("Размер наконечника (4–48)", appearance.EndSize,
             value => appearance.EndSize = value);
-        AddDistance("Отступ изгиба от выхода (0–200)", appearance.ExitDistance,
+        AddDistance("Прямой участок от выхода (0–200)", appearance.ExitDistance,
             value => appearance.ExitDistance = value);
-        AddDistance("Отступ изгиба от входа (0–200)", appearance.EntryDistance,
+        AddDistance("Прямой участок перед входом (0–200)", appearance.EntryDistance,
             value => appearance.EntryDistance = value);
+        AddDistance("Радиус изгиба у выхода (0–200)", appearance.ExitRadius,
+            value => appearance.ExitRadius = value);
+        AddDistance("Радиус изгиба у входа (0–200)", appearance.EntryRadius,
+            value => appearance.EntryRadius = value);
         var reset = new Button { Text = UiLanguage.T("Сбросить оформление связи"), Width = 250, Height = 34 };
         reset.Click += (_, _) =>
         {
@@ -2664,6 +2668,7 @@ internal sealed class GraphCanvas : Control
                 if (!appearance.IsValid()) appearance = new LinkAppearance();
                 var route = GraphLinkRouter.Route(source, i, target, Project.Nodes, appearance);
                 if (route.Length < 2) continue;
+                var displayRoute = LinkCurveGeometry.Build(route, appearance, Project.Nodes);
                 var selected = _selectedLink == (source.Id, ports[i]);
                 var hovered = _hoveredLink == (source.Id, ports[i]);
                 var baseColor = ColorTranslator.FromHtml(appearance.Color);
@@ -2675,11 +2680,11 @@ internal sealed class GraphCanvas : Control
                     { "Dash" => DashStyle.Dash, "Dot" => DashStyle.Dot,
                       "DashDot" => DashStyle.DashDot, "DashDotDot" => DashStyle.DashDotDot,
                       _ => DashStyle.Solid } };
-                g.DrawLines(pen, route);
-                DrawEndDecoration(g, color, route[^2], route[^1], appearance.End, appearance.EndSize);
+                g.DrawLines(pen, displayRoute);
+                DrawEndDecoration(g, color, displayRoute[^2], displayRoute[^1], appearance.End, appearance.EndSize);
                 if (hovered)
                 {
-                    var center = LinkSelectionGeometry.Midpoint(route);
+                    var center = LinkSelectionGeometry.Midpoint(displayRoute);
                     var radius = 6f / _zoom;
                     using var dot = new SolidBrush(Color.FromArgb(34, 123, 204));
                     using var ring = new Pen(Color.White, 2f / _zoom);
@@ -2784,7 +2789,7 @@ internal sealed class GraphCanvas : Control
         }
     }
 
-    private static void DrawEndDecoration(Graphics graphics, Color color, Point before, Point target,
+    private static void DrawEndDecoration(Graphics graphics, Color color, PointF before, PointF target,
         string end, int size)
     {
         if (end == "Line") return;
@@ -3119,14 +3124,17 @@ internal sealed class GraphCanvas : Control
                 if (target == null || target.Kind == "Description") continue;
                 var route = GraphLinkRouter.Route(source, i, target, Project.Nodes,
                     source.LinkStyles.GetValueOrDefault(ports[i]));
+                if (route.Length < 2) continue;
+                var appearance = source.LinkStyles.GetValueOrDefault(ports[i]) ?? new LinkAppearance();
+                var displayRoute = LinkCurveGeometry.Build(route, appearance, Project.Nodes);
                 var thickness = source.LinkStyles.GetValueOrDefault(ports[i])?.Thickness ?? 2;
                 var radius = LinkSelectionGeometry.HitRadius(_zoom, (float)thickness);
-                for (var step = 1; step < route.Length; step++)
+                for (var step = 1; step < displayRoute.Length; step++)
                 {
-                    var distance = LinkSelectionGeometry.SegmentDistance(point, route[step - 1], route[step]);
+                    var distance = LinkSelectionGeometry.SegmentDistance(point, displayRoute[step - 1], displayRoute[step]);
                     if (distance <= radius && distance < best) { best = distance; nearest = (source, ports[i], target); }
                 }
-                var center = LinkSelectionGeometry.Midpoint(route);
+                var center = LinkSelectionGeometry.Midpoint(displayRoute);
                 var markerDistance = Distance(point, Point.Round(center));
                 if (markerDistance <= 14 / _zoom && markerDistance < best)
                 { best = markerDistance; nearest = (source, ports[i], target); }

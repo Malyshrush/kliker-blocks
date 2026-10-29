@@ -35,6 +35,9 @@ internal static class SelfTest
             AppIdentity.TitleFor(new Version(2, 3)) == "Kliker Blocks v2.3" &&
             AppIdentity.TitleFor(new Version(2, 3, 4)) == "Kliker Blocks v2.3.4",
             "main-window title follows the running assembly version");
+        Assert(AppHelp.Introduction.Contains(AppIdentity.VersionLabel, StringComparison.Ordinal) &&
+            EnglishHelp.Overview.Contains(AppIdentity.VersionLabel, StringComparison.Ordinal),
+            "Russian and English help show the current assembly version");
         Assert(AutostartSettings.CommandFor(@"C:\Program Files\Kliker Blocks\Kliker.Blocks.exe") ==
             "\"C:\\Program Files\\Kliker Blocks\\Kliker.Blocks.exe\" --windows-startup",
             "autostart command quotes executable paths containing spaces");
@@ -2017,7 +2020,8 @@ internal static class SelfTest
                     { Shape = "Triangle", Size = 19, FillColor = "#654321" } } };
             start.LinkStyles["Далее"] = new LinkAppearance { End = "Diamond", Pattern = "Dash",
                 Color = "#12AB34", OpacityPercent = 64, Thickness = 3.5m,
-                EndSize = 24, ExitDistance = 30, EntryDistance = 20 };
+                EndSize = 24, ExitDistance = 30, EntryDistance = 20,
+                ExitRadius = 12, EntryRadius = 9 };
             start.Links["Далее"] = target.Id;
             var nodes = new[] { start, middle, target };
             var route = GraphLinkRouter.Route(start, 0, target, nodes, start.LinkStyles["Далее"]);
@@ -2026,17 +2030,40 @@ internal static class SelfTest
                 Enumerable.Range(1, route.Length - 1).All(i =>
                     !GraphLinkRouter.CrossesInterior(route[i - 1], route[i], BlockCatalog.Bounds(middle))),
                 "connection routes around intervening block");
+            var roundedObstacleRoute = LinkCurveGeometry.Build(route, start.LinkStyles["Далее"], nodes);
+            Assert(roundedObstacleRoute.All(point => !BlockCatalog.Bounds(middle).Contains(Point.Round(point))),
+                "rounded connection also stays clear of intervening block");
             var project = new ProjectModel { Nodes = [start, middle, target] };
             var code = GraphCodeCodec.Serialize(project);
             var parsed = GraphCodeCodec.Parse(code);
             Assert(parsed[0].LinkStyles["Далее"].End == "Diamond" &&
                 parsed[0].LinkStyles["Далее"].EndSize == 24 &&
                 parsed[0].LinkStyles["Далее"].ExitDistance == 30 &&
+                parsed[0].LinkStyles["Далее"].ExitRadius == 12 &&
+                parsed[0].LinkStyles["Далее"].EntryRadius == 9 &&
                 parsed[1].Appearance?.InputAngle == 135 &&
                 parsed[1].Appearance?.InputPort.Size == 22 &&
                 parsed[1].Appearance?.OutputPorts["Далее"].Shape == "Triangle" &&
                 GraphCodeCodec.Serialize(new ProjectModel { Nodes = parsed }) == code,
                 "block and link appearances survive code round trip");
+            var curveSource = BlockCatalog.Create("Start", 100, 140);
+            var curveTarget = BlockCatalog.Create("Log", 530, 60);
+            var curvedStyle = new LinkAppearance { ExitDistance = 50, EntryDistance = 50,
+                ExitRadius = 32, EntryRadius = 18 };
+            var curvedNodes = new[] { curveSource, curveTarget };
+            var corners = GraphLinkRouter.Route(curveSource, 0, curveTarget, curvedNodes, curvedStyle);
+            var curve = LinkCurveGeometry.Build(corners, curvedStyle, curvedNodes);
+            Assert(corners.Length >= 4 && curve.Length > corners.Length &&
+                curve[0] == corners[0] && curve[^1] == corners[^1] &&
+                curve.Skip(1).Take(curve.Length - 2).All(point =>
+                    !BlockCatalog.Bounds(curveSource).Contains(Point.Round(point)) &&
+                    !BlockCatalog.Bounds(curveTarget).Contains(Point.Round(point))),
+                "independent output and input radii produce a clear rounded connection");
+            var sharp = curvedStyle.Copy();
+            sharp.ExitRadius = 0;
+            sharp.EntryRadius = 0;
+            Assert(LinkCurveGeometry.Build(corners, sharp, curvedNodes).Length == corners.Length,
+                "zero radii leave sharp corners without changing the route");
             var straightStyle = new LinkAppearance { ExitDistance = 0, EntryDistance = 0 };
             var direct = GraphLinkRouter.Route(start, 0, target, [start, target], straightStyle);
             Assert(direct.Length == 2 && direct[0] == GraphLinkRouter.OutputPoint(start, 0) &&
@@ -2069,7 +2096,9 @@ internal static class SelfTest
             foreach (var text in new[] { "Оформление блока…", "Форма блока", "Точка на контуре",
                 "Выбрать цвет заливки…", "Оформление связи", "Штриховая", "Стрелка",
                 "Форма выбранной точки", "Размер выбранной точки (6–36)",
-                "Размер наконечника (4–48)", "Отступ изгиба от входа (0–200)" })
+                "Размер наконечника (4–48)", "Прямой участок от выхода (0–200)",
+                "Прямой участок перед входом (0–200)",
+                "Радиус изгиба у выхода (0–200)", "Радиус изгиба у входа (0–200)" })
                 Assert(UiLanguage.Has(text) && !UiLanguage.T(text).Any(c => c is >= '\u0400' and <= '\u04FF'),
                     $"English graph appearance control: {text}");
             UiLanguage.Configure("ru");
@@ -3386,7 +3415,8 @@ internal static class SelfTest
                     .Select(match => match.Value).Take(8)));
             var history = Descendants(about).OfType<TabControl>().Single().TabPages[1]
                 .Controls.OfType<RichTextBox>().Single().Text;
-            Assert(history.StartsWith("v1.1", StringComparison.Ordinal) && history.Contains("v1.0", StringComparison.Ordinal) &&
+            Assert(history.StartsWith("v" + AppIdentity.VersionLabel, StringComparison.Ordinal) &&
+                history.Contains("v1.0", StringComparison.Ordinal) &&
                 !history.Contains("v0.", StringComparison.Ordinal),
                 "About history begins at 1.0 without development versions");
             about.Opacity = 0;

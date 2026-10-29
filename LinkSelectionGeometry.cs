@@ -8,6 +8,9 @@ internal static class LinkSelectionGeometry
         Math.Max(14 / Math.Max(0.05f, zoom), thickness / 2 + 4 / Math.Max(0.05f, zoom));
 
     internal static double SegmentDistance(Point point, Point start, Point end)
+        => SegmentDistance(point, (PointF)start, end);
+
+    internal static double SegmentDistance(Point point, PointF start, PointF end)
     {
         var dx = (double)end.X - start.X;
         var dy = (double)end.Y - start.Y;
@@ -20,6 +23,9 @@ internal static class LinkSelectionGeometry
     }
 
     internal static PointF Midpoint(IReadOnlyList<Point> route)
+        => Midpoint(route.Select(point => (PointF)point).ToArray());
+
+    internal static PointF Midpoint(IReadOnlyList<PointF> route)
     {
         if (route.Count == 0) return PointF.Empty;
         if (route.Count == 1) return route[0];

@@ -35,8 +35,6 @@ internal sealed class AboutForm : Form
         root.Controls.Add(tabs, 0, 1);
         var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft,
             Padding = new Padding(0, 7, 2, 0), WrapContents = false };
-        var close = new Button { Text = copy.Close, DialogResult = DialogResult.OK,
-            Width = 112, Height = 36, Margin = new Padding(6, 0, 0, 0) };
         var help = new Button { Text = copy.Help, Width = 112, Height = 36,
             Margin = new Padding(6, 0, 0, 0) };
         help.Click += (_, _) => new HelpForm(null).Show(this);
@@ -46,12 +44,10 @@ internal sealed class AboutForm : Form
         var support = new Button { Text = UiLanguage.T("Поддержать проект"), Width = 155, Height = 36,
             Margin = new Padding(6, 0, 0, 0) };
         support.Click += (_, _) => new SupportForm().Show(this);
-        buttons.Controls.Add(close);
         buttons.Controls.Add(help);
         buttons.Controls.Add(website);
         buttons.Controls.Add(support);
         root.Controls.Add(buttons, 0, 2);
-        AcceptButton = close;
         _features.Text = BuildFeatures(copy);
         _releases.Text = BuildReleases(copy);
     }
@@ -73,7 +69,10 @@ internal sealed class AboutForm : Form
     }
 
     private static string BuildReleases(Copy copy) =>
-        "v1.1.9\r\n" + (UiLanguage.Code == "ru"
+        "v1.2.0\r\n" + (UiLanguage.Code == "ru"
+            ? "Исправлена версия в справке. Окно «О программе» закрывается системной кнопкой. Связи получили отдельные отступы от выхода и входа и отдельные радиусы изгиба; маршрут обходит блоки."
+            : "Help displays the actual app version. About closes with the window control. Connections have separate output and input distances and corner radii, and route around blocks.") +
+        "\r\n\r\nv1.1.9\r\n" + (UiLanguage.Code == "ru"
             ? "Добавлены запуск выбранного сценария при входе в Windows с задержкой и расписания с точностью до секунды. Для каждого задания открывается отдельный экземпляр программы. Тонкие связи легче выбрать: расширена область клика, при наведении видны подсветка и маркер. Проверка обновлений скачивает установщик с GitHub, сверяет SHA-256 и сохраняет резервную копию графа. Файлы .klb по умолчанию хранятся в Документах; доступна проверка совместимости формата."
             : "Added a selected scenario at Windows sign-in with optional delay and scheduled starts to the second. Each task opens a separate app instance. Thin links are easier to select with a wider click area, hover highlight and midpoint handle. Update check downloads the GitHub installer, verifies SHA-256 and backs up the open graph. New .klb files default to Documents; graph compatibility can be checked.") +
         "\r\n\r\nv1.1.8\r\n" + (UiLanguage.Code == "ru"

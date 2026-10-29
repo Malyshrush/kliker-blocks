@@ -1,4 +1,4 @@
-param([string]$Version = '1.1.9')
+param([string]$Version = '1.2.0')
 $ErrorActionPreference = 'Stop'
 $project = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 $releaseDir = Join-Path $project ('publish-v' + ($Version -replace '\.', ''))

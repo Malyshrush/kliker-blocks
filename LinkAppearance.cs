@@ -12,6 +12,8 @@ public sealed class LinkAppearance
     public int EndSize { get; set; } = 12;
     public int ExitDistance { get; set; } = 14;
     public int EntryDistance { get; set; } = 14;
+    public int ExitRadius { get; set; } = 18;
+    public int EntryRadius { get; set; } = 18;
 
     public bool IsValid() =>
         End is "Arrow" or "Line" or "Diamond" or "Circle" &&
@@ -19,7 +21,8 @@ public sealed class LinkAppearance
         Color is not null && Regex.IsMatch(Color, "^#[0-9A-Fa-f]{6}$") &&
         OpacityPercent is >= 5 and <= 100 && Thickness is >= 1 and <= 12 &&
         EndSize is >= 4 and <= 48 && ExitDistance is >= 0 and <= 200 &&
-        EntryDistance is >= 0 and <= 200;
+        EntryDistance is >= 0 and <= 200 && ExitRadius is >= 0 and <= 200 &&
+        EntryRadius is >= 0 and <= 200;
 
     public LinkAppearance Copy() => (LinkAppearance)MemberwiseClone();
 }

@@ -53,6 +53,23 @@ internal static class GraphLinkRouter
                 CrossesRectangle(from, to, block.Bounds)))
             return [from, to];
 
+        // For the usual lower-right output / upper-left input, keep the two
+        // straight port leads at their requested lengths. Route the middle
+        // vertically before crossing to the input. This gives each end an
+        // independent corner for its radius setting.
+        if (sourceExits.Length > 0 && targetEntries.Length > 0)
+        {
+            var exit = sourceExits[0];
+            var entry = targetEntries[0];
+            if (exit.Y == from.Y && entry.Y == to.Y &&
+                exit.X > from.X && entry.X < to.X && exit.X < entry.X)
+            {
+                var bend = new Point(exit.X, entry.Y);
+                var candidate = Compress([from, exit, bend, entry, to]);
+                if (CandidateIsClear(candidate, blocks, source.Id, target.Id)) return candidate;
+            }
+        }
+
         Point[]? best = null;
         var bestCost = double.PositiveInfinity;
         var corridor = Rectangle.FromLTRB(Math.Min(from.X, to.X), Math.Min(from.Y, to.Y),
@@ -96,6 +113,24 @@ internal static class GraphLinkRouter
         var radians = angle * Math.PI / 180;
         return (other.X - origin.X) * Math.Cos(radians) +
             (other.Y - origin.Y) * Math.Sin(radians) >= 0;
+    }
+
+    private static bool CandidateIsClear(Point[] route,
+        (Guid Id, Rectangle Bounds)[] blocks, Guid sourceId, Guid targetId)
+    {
+        for (var i = 1; i < route.Length; i++)
+        {
+            var a = route[i - 1];
+            var b = route[i];
+            if (a.X != b.X && a.Y != b.Y) return false;
+            foreach (var block in blocks)
+            {
+                if (i == 1 && block.Id == sourceId) continue;
+                if (i == route.Length - 1 && block.Id == targetId) continue;
+                if (CrossesInterior(a, b, block.Bounds)) return false;
+            }
+        }
+        return true;
     }
 
     private static Point[] OutsideAnchors(Point point, Rectangle bounds, int angle, int distance)
