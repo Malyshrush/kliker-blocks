@@ -431,7 +431,7 @@ public static class BlockCatalog
         new("OcrImage", "Распознать текст", "Локальный OCR изображения", Color.FromArgb(61, 116, 157), ["Далее"],
         [new("Path", "Путь к изображению", "screen.png"),
          new("EnginePath", "Путь к tesseract.exe (пусто = поиск)", ""),
-         new("Language", "Код языка OCR", "eng"),
+         new("Language", "Код языка OCR (например eng+rus)", "eng+rus"),
          new("TimeoutMs", "Таймаут OCR, мс", "30000"),
          new("Result", "Переменная результата", "ocr_text")]),
         new("BufferCapture", "Запомнить экран", "Снимок для повторного анализа, аналог GETSCREEN", Color.FromArgb(61, 116, 157), ["Далее"],

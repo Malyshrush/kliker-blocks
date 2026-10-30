@@ -2625,8 +2625,16 @@ internal static class SelfTest
             var missingEngine = false;
             try { OcrTools.ResolveEngine(Path.Combine(directory, "missing.exe")); }
             catch (FileNotFoundException) { missingEngine = true; }
-            Assert(invalidLanguage && missingEngine,
-                "OCR rejects command arguments and reports missing local engine");
+            var languages = TesseractInstaller.ParseLanguages("eng+rus+eng");
+            var invalidInstallerLanguage = false;
+            try { TesseractInstaller.ParseLanguages("eng;rm"); }
+            catch (InvalidOperationException) { invalidInstallerLanguage = true; }
+            Assert(invalidLanguage && missingEngine && languages.SequenceEqual(["eng", "rus"]) &&
+                invalidInstallerLanguage && BlockCatalog.Create("OcrImage", 0, 0).Value("Language") == "eng+rus" &&
+                new Uri(TesseractInstaller.InstallerUrl).Scheme == Uri.UriSchemeHttps &&
+                new Uri(TesseractInstaller.InstallerUrl).Host.Equals("github.com", StringComparison.OrdinalIgnoreCase) &&
+                new Uri(TesseractInstaller.ModelBaseUrl).Host.Equals("raw.githubusercontent.com", StringComparison.OrdinalIgnoreCase),
+                "OCR rejects command arguments, uses an explicit language plan, and trusts only declared HTTPS sources");
         }
         finally { Directory.Delete(directory, true); }
     }

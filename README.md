@@ -2,7 +2,7 @@
 
 **Документы проекта:** [все выпущенные возможности](FEATURES.md) · [реестр ошибок и регрессий](BUG_REGISTRY.md) · [правила сопровождения](AGENTS.md).
 
-**Сайт:** https://malyshrush.github.io/kliker-blocks-site/ · **Скачать выпуск:** https://github.com/Malyshrush/kliker-blocks/releases/tag/v1.2.1 · **Вопросы и графы:** https://github.com/Malyshrush/kliker-blocks-site/discussions
+**Сайт:** https://malyshrush.github.io/kliker-blocks-site/ · **Скачать выпуск:** https://github.com/Malyshrush/kliker-blocks/releases/tag/v1.2.2 · **Вопросы и графы:** https://github.com/Malyshrush/kliker-blocks-site/discussions
 
 ![Визуальный редактор Kliker Blocks](screenshots/editor-ru.png)
 
@@ -10,13 +10,13 @@
 
 ![Добровольная поддержка проекта](screenshots/support-ru.png)
 
-Kliker Blocks 1.2.1 — публичная бета визуального редактора сценариев для Windows. При первом запуске, до редактора и демонстрации, выберите английский или русский язык. Выбор сохраняется; сменить язык позже можно в меню «Языки».
+Kliker Blocks 1.2.2 — публичная бета визуального редактора сценариев для Windows. При первом запуске, до редактора и демонстрации, выберите английский или русский язык. Выбор сохраняется; сменить язык позже можно в меню «Языки».
 
-Версия 1.2.1 добавляет таблицы CSV и Excel, извлечение текста PDF, очередь файлов, контрольные точки, обработку ошибок блоков и отправку графа в «Графы пользователей» через предварительный просмотр. Локальное OCR требует отдельно установленный Tesseract. Номер версии в справке берётся из сборки.
+Версия 1.2.2 добавляет установку Tesseract OCR по явному согласию для блока «Распознать текст». Загрузка включает только выбранные языковые модели; распознавание локальное.
 
 ## Установка
 
-В папке выпуска есть установщики `KlikerBlocks-Setup-1.2.1-x64.exe` и `KlikerBlocks-Setup-1.2.1-x86.exe`, а также переносимые ZIP-сборки для обеих архитектур. На 64-разрядной Windows выбирайте x64, на 32-разрядной — x86. Установщик сам выбирает английский или русский язык интерфейса по языку Windows. Можно выбрать папку, значок на рабочем столе, автозапуск и запуск после установки. Автозапуск также переключается в меню «Сценарий → Запускать вместе с Windows». Закрепление на панели задач выполняется через меню Windows у значка работающей программы: установщик не может сделать это автоматически без действия пользователя.
+В папке выпуска есть установщики `KlikerBlocks-Setup-1.2.2-x64.exe` и `KlikerBlocks-Setup-1.2.2-x86.exe`, а также переносимые ZIP-сборки для обеих архитектур. На 64-разрядной Windows выбирайте x64, на 32-разрядной — x86. Установщик сам выбирает английский или русский язык интерфейса по языку Windows. Можно выбрать папку, значок на рабочем столе, автозапуск и запуск после установки.
 
 В меню «Сценарий → Автозапуск и расписание сценариев» можно выбрать граф для запуска при входе в Windows и задержку 0–3600 секунд. Расписания Windows запускают сохранённые графы один раз или ежедневно с точностью до секунды, каждый в отдельном экземпляре программы. Для работы пользователь должен войти в Windows. «Справка → Проверить обновления» находит более новый выпуск на GitHub, скачивает установщик для текущей архитектуры, проверяет SHA-256 и создаёт резервную копию открытого графа перед установкой. Новые графы сохраняются в «Документы\Kliker Blocks»; старые .klb и настройки не входят в установочный пакет. «Файл → Проверить совместимость графа» проверяет .klb без его изменения. При наведении на тонкую связь появляется маркер; область её клика увеличена.
 
@@ -73,11 +73,11 @@ Kliker Blocks 1.2.1 — публичная бета визуального ре�
 
 ## English
 
-Kliker Blocks 1.2.1 is a public beta visual scenario editor for Windows. Connect blocks for logic, input, desktop control, files, screenshots, speech and logging, or edit the same graph as code. The interface and built-in Help are available in English and Russian. Each block has a copyable example graph.
+Kliker Blocks 1.2.2 is a public beta visual scenario editor for Windows. Connect blocks for logic, input, desktop control, files, screenshots, speech and logging, or edit the same graph as code. The interface and built-in Help are available in English and Russian. Each block has a copyable example graph.
 
-Version 1.2.1 adds CSV and Excel tables, PDF text extraction, a file queue, checkpoints, per-block error handling and reviewed graph sharing through GitHub Discussions. Local OCR requires a separately installed Tesseract engine. Version 1.2.0 corrected the Help version, removed the unused About close button, and added separate link lead lengths and corner radii.
+Version 1.2.2 adds consent-based Tesseract OCR setup for the Recognize text block. Downloads include only selected language models; recognition stays local.
 
-Download the [latest installer or portable build](https://github.com/Malyshrush/kliker-blocks/releases/tag/v1.2.1). Read the [website and searchable block catalog](https://malyshrush.github.io/kliker-blocks-site/), or join the [community discussions](https://github.com/Malyshrush/kliker-blocks-site/discussions) for help, bug reports, ideas and shared graphs.
+Download the [latest installer or portable build](https://github.com/Malyshrush/kliker-blocks/releases/tag/v1.2.2). Read the [website and searchable block catalog](https://malyshrush.github.io/kliker-blocks-site/), or join the [community discussions](https://github.com/Malyshrush/kliker-blocks-site/discussions) for help, bug reports, ideas and shared graphs.
 
 The release provides separate x64 and x86 installers and self-contained portable ZIPs. Choose x64 for 64-bit Windows and x86 for 32-bit Windows. Both installers offer a destination folder, desktop shortcut, autostart and launch-after-install options.
 

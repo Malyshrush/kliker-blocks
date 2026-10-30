@@ -14,10 +14,48 @@ internal static class OcrTools
             return full;
         }
         var candidates = new[] {
+            TesseractInstaller.Executable,
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Tesseract-OCR", "tesseract.exe"),
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Tesseract-OCR", "tesseract.exe")
         };
         return candidates.FirstOrDefault(File.Exists) ?? "tesseract.exe";
+    }
+
+    internal static async Task<IReadOnlySet<string>> ListLanguagesAsync(string enginePath, CancellationToken cancel)
+    {
+        var executable = ResolveEngine(enginePath);
+        var start = new ProcessStartInfo(executable) { UseShellExecute = false,
+            RedirectStandardOutput = true, RedirectStandardError = true,
+            CreateNoWindow = true, StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8 };
+        start.ArgumentList.Add("--list-langs");
+        using var process = new Process { StartInfo = start };
+        try { process.Start(); }
+        catch (System.ComponentModel.Win32Exception error)
+        {
+            throw new FileNotFoundException(UiLanguage.T("Tesseract OCR не найден."), executable, error);
+        }
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancel);
+        timeout.CancelAfter(TimeSpan.FromSeconds(30));
+        try
+        {
+            var output = process.StandardOutput.ReadToEndAsync(timeout.Token);
+            var diagnostics = process.StandardError.ReadToEndAsync(timeout.Token);
+            await process.WaitForExitAsync(timeout.Token);
+            var text = await output;
+            var errors = await diagnostics;
+            if (process.ExitCode != 0)
+                throw new InvalidOperationException("OCR: " + errors.Trim());
+            return text.Split(['\r', '\n'], StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                .Where(line => !line.StartsWith("List of available languages", StringComparison.OrdinalIgnoreCase))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        }
+        catch (OperationCanceledException) when (!cancel.IsCancellationRequested)
+        {
+            if (!process.HasExited) process.Kill(true);
+            throw new TimeoutException(UiLanguage.T("Превышен таймаут проверки Tesseract OCR."));
+        }
+        finally { if (!process.HasExited) process.Kill(true); }
     }
 
     internal static async Task<string> ReadAsync(string imagePath, string language, string enginePath,

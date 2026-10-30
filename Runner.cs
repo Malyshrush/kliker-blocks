@@ -22,7 +22,8 @@ internal sealed class Runner(ProjectModel project, Action<string> log, Action<in
     Func<string, string, int, int, CancellationToken, Task>? speakText = null,
     Func<string, VariableStore, CancellationToken, Task>? showcaseStep = null,
     int nestedDepth = 0,
-    Action<Guid, IReadOnlyDictionary<string, string>, bool>? debugState = null)
+    Action<Guid, IReadOnlyDictionary<string, string>, bool>? debugState = null,
+    Func<string, CancellationToken, Task<string?>>? ensureOcr = null)
 {
     private sealed class SubReturnSignal : Exception { }
     private readonly Dictionary<Guid, BlockNode> _nodes = project.Nodes.ToDictionary(n => n.Id);
@@ -43,6 +44,7 @@ internal sealed class Runner(ProjectModel project, Action<string> log, Action<in
     private readonly Action<string> _playSound = playSound ?? AudioTools.PlayWave;
     private readonly Func<string, string, int, int, CancellationToken, Task> _speakText =
         speakText ?? WindowsSpeech.SpeakAsync;
+    private readonly Func<string, CancellationToken, Task<string?>>? _ensureOcr = ensureOcr;
     private readonly Func<string, VariableStore, CancellationToken, Task> _showcaseStep = showcaseStep ??
         ((_, _, _) => throw new InvalidOperationException(UiLanguage.T("Этот шаг работает только во встроенной демонстрации Kliker Blocks.")));
     private readonly Func<int, int, CancellationToken, Task> _beep = beep ??
@@ -1030,8 +1032,22 @@ internal sealed class Runner(ProjectModel project, Action<string> log, Action<in
                 case "OcrImage":
                 {
                     var path = ExternalTools.ResolvePath(node.Value("Path"), _baseDirectory);
-                    var result = await OcrTools.ReadAsync(path, node.Value("Language"),
-                        node.Value("EnginePath"), node.Int("TimeoutMs", 30000), cancel);
+                    var enginePath = node.Value("EnginePath");
+                    try
+                    {
+                        var available = await OcrTools.ListLanguagesAsync(enginePath, cancel);
+                        var required = TesseractInstaller.ParseLanguages(node.Value("Language"));
+                        var missing = required.Where(language => !available.Contains(language)).ToArray();
+                        if (missing.Length > 0) throw new FileNotFoundException(
+                            UiLanguage.T("Не установлены языковые данные Tesseract: ") + string.Join(", ", missing));
+                    }
+                    catch (FileNotFoundException) when (_ensureOcr is not null)
+                    {
+                        enginePath = await _ensureOcr(node.Value("Language"), cancel) ?? throw new InvalidOperationException(
+                            UiLanguage.T("Tesseract OCR не установлен. Установите его или укажите путь к tesseract.exe в блоке."));
+                    }
+                    var result = await OcrTools.ReadAsync(path, node.Value("Language"), enginePath,
+                        node.Int("TimeoutMs", 30000), cancel);
                     _variables.Set(node.Value("Result"), result);
                     log(UiLanguage.Format("OCR: распознано {0} символов из {1}", result.Length, path));
                     current = node.Link("Далее");
@@ -1353,7 +1369,7 @@ internal sealed class Runner(ProjectModel project, Action<string> log, Action<in
                             keyState, relativeMove, conditionStatus, null, _clearLog, _showLog, playSound, beep,
                             inputDialog, choiceDialog, messageInbox, selfHandle, radioDialog, hintPopup,
                             translate, argosPythonPath, translateLocal, speakText, showcaseStep, nestedDepth + 1,
-                            debugState);
+                            debugState, _ensureOcr);
                         foreach (var (name, value) in ParseModulePairs(node.Value("Inputs"), "входы"))
                             child._variables.Set(name, value);
                         _childRunner = child;

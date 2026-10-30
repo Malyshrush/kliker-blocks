@@ -1805,6 +1805,23 @@ internal sealed class MainForm : Form
                 }
             }
         }
+        if (node.Kind == "OcrImage")
+        {
+            var installOcr = new Button
+            {
+                Text = UiLanguage.Code == "en" ? "Install Tesseract OCR…" : "Установить Tesseract OCR…",
+                Width = 250, Height = 36, Margin = new Padding(0, 10, 0, 0)
+            };
+            installOcr.Click += (_, _) =>
+            {
+                using var setup = new OcrSetupForm(node.Value("Language"));
+                if (setup.ShowDialog(_editorWindow ?? this) != DialogResult.OK) return;
+                node.Values["EnginePath"] = setup.EnginePath;
+                ShowProperties(node);
+                _graph.Invalidate();
+            };
+            _fields.Controls.Add(installOcr);
+        }
         if (node.Kind is "UiWait" or "UiAction")
         {
             var captureElement = new Button { Text = UiLanguage.T("Захватить элемент под указателем через 3 секунды…"),
@@ -2081,7 +2098,8 @@ internal sealed class MainForm : Form
                 messageInbox: _messageInbox, selfHandle: Handle, argosPythonPath: _settings.ArgosPythonPath,
                 showcaseStep: showcaseSession is null ? null :
                     (action, variables, cancel) => showcaseSession.ExecuteAsync(action, variables, cancel),
-                debugState: (id, variables, paused) => UI(() => UpdateDebugState(id, variables, paused)));
+                debugState: (id, variables, paused) => UI(() => UpdateDebugState(id, variables, paused)),
+                ensureOcr: EnsureOcrAsync);
             await _runner.RunAsync(_cancel.Token, resume);
             AppendLog("Сценарий завершён");
         }
@@ -2235,6 +2253,16 @@ internal sealed class MainForm : Form
         }
         catch (InvalidOperationException error) { completion.TrySetException(error); }
         return completion.Task;
+    }
+
+    private Task<string?> EnsureOcrAsync(string languages, CancellationToken cancel)
+    {
+        cancel.ThrowIfCancellationRequested();
+        return OnUiAsync(() =>
+        {
+            using var setup = new OcrSetupForm(languages);
+            return setup.ShowDialog(this) == DialogResult.OK ? setup.EnginePath : null;
+        });
     }
 
     private void AppendLog(string message)

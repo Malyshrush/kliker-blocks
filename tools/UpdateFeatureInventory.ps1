@@ -1,4 +1,4 @@
-param([switch]$Check)
+﻿param([switch]$Check)
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
@@ -7,10 +7,14 @@ $documentPath = Join-Path $projectRoot 'FEATURES.md'
 if (-not (Test-Path -LiteralPath $catalogPath)) { throw "Block catalog is missing: $catalogPath" }
 if (-not (Test-Path -LiteralPath $documentPath)) { throw "Feature document is missing: $documentPath" }
 
-$blocks = @(Get-Content -LiteralPath $catalogPath -Raw -Encoding utf8 | ConvertFrom-Json)
+$parsedBlocks = Get-Content -LiteralPath $catalogPath -Raw -Encoding utf8 | ConvertFrom-Json
+# Windows PowerShell 5.1 returns a JSON top-level array as one pipeline object;
+# enumerate it explicitly so the release audit sees every block on both engines.
+$blocks = @($parsedBlocks | ForEach-Object { $_ })
 if ($blocks.Count -eq 0) { throw 'Block catalog is empty.' }
 $kinds = @($blocks | ForEach-Object { $_.kind })
-if (@($kinds | Sort-Object -Unique).Count -ne $blocks.Count) { throw 'Duplicate block kinds in catalog.' }
+$duplicateKinds = @($kinds | Group-Object | Where-Object { $_.Count -gt 1 })
+if ($duplicateKinds.Count -gt 0) { throw 'Duplicate block kinds in catalog.' }
 
 function Escape-Cell([string]$value) {
     $value.Replace('|', '\|').Replace("`r`n", '<br>').Replace("`n", '<br>').Trim()

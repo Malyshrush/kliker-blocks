@@ -1,4 +1,4 @@
-param([string]$Version = '1.2.1')
+param([string]$Version = '1.2.2')
 $ErrorActionPreference = 'Stop'
 $project = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 $releaseDir = Join-Path $project ('publish-v' + ($Version -replace '\.', ''))
@@ -33,14 +33,26 @@ catch {
 }
 $uploadBase = $release.upload_url.Split('{')[0]
 foreach ($name in $names) {
-    if ($release.assets | Where-Object { $_.name -eq $name }) {
+    $existing = $release.assets | Where-Object { $_.name -eq $name } | Select-Object -First 1
+    if ($existing -and $existing.state -eq 'uploaded') {
         Write-Output "Already published: $name"
         continue
     }
+    if ($existing) { throw "GitHub has an incomplete asset named $name ($($existing.state)); remove it before retrying." }
     $path = Join-Path $releaseDir $name
     $uri = "$uploadBase`?name=$([Uri]::EscapeDataString($name))"
-    $asset = Invoke-RestMethod -Uri $uri -Headers $headers -Method Post -InFile $path `
-        -ContentType 'application/octet-stream' -TimeoutSec 3600
+    $responsePath = Join-Path $project ("obj\github-upload-response-$PID.json")
+    $curlArgs = @(
+        '--retry', '4', '--retry-all-errors', '--retry-delay', '8',
+        '--connect-timeout', '30', '--max-time', '3600', '-sS', '-X', 'POST',
+        '-H', "Authorization: Bearer $token", '-H', 'Accept: application/vnd.github+json',
+        '-H', 'Content-Type: application/octet-stream', '-H', 'User-Agent: KlikerBlocks-release-publisher',
+        '-H', 'Expect:', '--data-binary', "@$path", '-o', $responsePath, '-w', '%{http_code}', $uri
+    )
+    $httpStatus = & curl.exe @curlArgs
+    if ($LASTEXITCODE -ne 0) { throw "GitHub upload failed for $name (curl exit $LASTEXITCODE, HTTP $httpStatus)." }
+    $asset = Get-Content -LiteralPath $responsePath -Raw | ConvertFrom-Json
+    Remove-Item -LiteralPath $responsePath -Force
     if ($asset.state -ne 'uploaded') { throw "Upload not complete: $name ($($asset.state))" }
     Write-Output "Uploaded $name ($($asset.size) bytes)"
 }
