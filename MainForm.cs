@@ -250,19 +250,45 @@ internal sealed class MainForm : Form
         _inspectorTimer.Tick += (_, _) => UpdateInspector();
         if (!_uiPreview) _inspectorTimer.Start();
 
-        var main = new SplitContainer { Dock = DockStyle.Fill, FixedPanel = FixedPanel.Panel1, SplitterDistance = 270 };
+        var main = new SplitContainer { Dock = DockStyle.Fill, FixedPanel = FixedPanel.Panel1,
+            SplitterDistance = 320, SplitterWidth = 6 };
         root.Controls.Add(main, 0, 2);
         var palette = new FlowLayoutPanel
         {
             Dock = DockStyle.Fill, AutoScroll = true, FlowDirection = FlowDirection.TopDown,
-            WrapContents = false, Padding = new Padding(10), BackColor = Color.FromArgb(232, 237, 244)
+            WrapContents = false, Padding = new Padding(12, 10, 12, 12), BackColor = Color.FromArgb(241, 245, 250)
         };
         main.Panel1.Controls.Add(palette);
-        palette.Controls.Add(new Label { Text = "БЛОКИ ПО РАЗДЕЛАМ", Width = 242, Height = 30, Font = new Font(Font, FontStyle.Bold) });
-        var search = new TextBox { Width = 242, PlaceholderText = UiLanguage.T("Поиск блока…") };
+        var paletteTitle = new Label { Text = UiLanguage.T("БЛОКИ ПО РАЗДЕЛАМ"), Width = 260, Height = 30,
+            Font = new Font(Font.FontFamily, 10f, FontStyle.Bold), ForeColor = Color.FromArgb(43, 61, 83),
+            TextAlign = ContentAlignment.MiddleLeft, Margin = new Padding(0, 0, 0, 5) };
+        palette.Controls.Add(paletteTitle);
+        var search = new TextBox { PlaceholderText = UiLanguage.T("Поиск блока…"), BorderStyle = BorderStyle.FixedSingle,
+            BackColor = Color.White, ForeColor = Color.FromArgb(31, 45, 63), Height = 32, Margin = new Padding(0, 0, 0, 7) };
         palette.Controls.Add(search);
-        var groups = new List<(FlowLayoutPanel Container, Button Header, string Name, List<(Button Button, BlockSpec Spec)> Buttons)>();
+        var paletteHint = new Label
+        {
+            Text = UiLanguage.T("Щёлкните пустое поле для вставки или переноса выделенных блоков. ПКМ сбрасывает точку и выделение. Без точки новые блоки размещаются по порядку."),
+            Width = 260, Height = 155, ForeColor = Color.FromArgb(87, 103, 123), Margin = new Padding(0, 14, 0, 0)
+        };
+        var groups = new List<(FlowLayoutPanel Container, PaletteSectionHeader Header, string Name,
+            List<(PaletteBlockButton Button, BlockSpec Spec)> Buttons)>();
         var expandedGroups = new HashSet<FlowLayoutPanel>();
+        int PaletteItemWidth() => Math.Max(220,
+            palette.ClientSize.Width - palette.Padding.Horizontal - SystemInformation.VerticalScrollBarWidth - 2);
+        void ResizePaletteItems()
+        {
+            var width = PaletteItemWidth();
+            paletteTitle.Width = width;
+            search.Width = width;
+            paletteHint.Width = width;
+            foreach (var (container, header, _, buttons) in groups)
+            {
+                container.Width = width;
+                header.Width = width;
+                foreach (var (button, _) in buttons) button.Width = width;
+            }
+        }
         void RefreshPalette()
         {
             var query = search.Text.Trim();
@@ -272,53 +298,60 @@ internal sealed class MainForm : Form
                 var visibleCount = 0;
                 foreach (var (button, spec) in buttons)
                 {
-                    button.Visible = expanded && (query.Length == 0 || spec.Title.Contains(query, StringComparison.CurrentCultureIgnoreCase) ||
+                    var showButton = expanded && (query.Length == 0 || spec.Title.Contains(query, StringComparison.CurrentCultureIgnoreCase) ||
                         UiLanguage.T(spec.Title).Contains(query, StringComparison.CurrentCultureIgnoreCase));
-                    if (button.Visible) visibleCount++;
+                    button.Visible = showButton;
+                    if (showButton) visibleCount++;
                 }
                 container.Visible = query.Length == 0 || visibleCount > 0;
-                container.Height = 42 + visibleCount * 40;
-                header.Text = (expanded ? "▾ " : "▸ ") + UiLanguage.T(name);
+                container.Height = header.Height + visibleCount * 44;
+                header.SetExpanded(expanded);
+                header.SetTitle(UiLanguage.T(name));
             }
+            ResizePaletteItems();
         }
         foreach (var group in BlockCatalog.All.Where(s => s.Kind != "ShowcaseStep")
                      .GroupBy(s => CategoryFor(s.Kind)).OrderBy(g => CategoryOrder(g.Key)))
         {
-            var container = new FlowLayoutPanel { Width = 244, Height = 42, FlowDirection = FlowDirection.TopDown,
-                WrapContents = false, AutoScroll = false, Margin = new Padding(0, 4, 0, 0) };
-            var header = new Button { Text = "▸ " + UiLanguage.T(group.Key), Width = 242, Height = 38, TextAlign = ContentAlignment.MiddleLeft,
-                Font = new Font(Font, FontStyle.Bold), BackColor = Color.FromArgb(213, 222, 237) };
+            var container = new FlowLayoutPanel { Width = 260, Height = 34, FlowDirection = FlowDirection.TopDown,
+                WrapContents = false, AutoScroll = false, Margin = new Padding(0, 3, 0, 2), Padding = Padding.Empty };
+            var header = new PaletteSectionHeader(UiLanguage.T(group.Key)) { Width = 260, Height = 34,
+                Margin = new Padding(0, 0, 0, 2) };
             container.Controls.Add(header);
-            var buttons = new List<(Button, BlockSpec)>();
+            var buttons = new List<(PaletteBlockButton, BlockSpec)>();
             foreach (var spec in group)
             {
-                var button = new Button { Text = "+  " + UiLanguage.T(spec.Title), Width = 242, Height = 36,
-                    TextAlign = ContentAlignment.MiddleLeft, Margin = new Padding(0, 0, 0, 3), Visible = false };
+                var button = new PaletteBlockButton { Text = UiLanguage.T(spec.Title), Width = 260, Height = 39,
+                    Margin = new Padding(2, 1, 2, 4), Visible = false };
                 button.Click += (_, _) => AddBlock(spec.Kind);
                 container.Controls.Add(button);
                 buttons.Add((button, spec));
             }
-            header.Click += (_, _) =>
+            void ToggleGroup(object? _, EventArgs __)
             {
                 if (!expandedGroups.Add(container)) expandedGroups.Remove(container);
                 RefreshPalette();
-            };
+            }
+            header.Clicked += ToggleGroup;
             groups.Add((container, header, group.Key, buttons));
             palette.Controls.Add(container);
         }
+        if (groups.Count > 0) expandedGroups.Add(groups[0].Container);
+        RefreshPalette();
         search.TextChanged += (_, _) => RefreshPalette();
-        palette.Controls.Add(new Label
-        {
-            Text = UiLanguage.T("Щёлкните пустое поле для вставки или переноса выделенных блоков. ПКМ сбрасывает точку и выделение. Без точки новые блоки размещаются по порядку."),
-            Width = 242, Height = 155, ForeColor = Color.FromArgb(75, 84, 98), Margin = new Padding(0, 14, 0, 0)
-        });
+        palette.Controls.Add(paletteHint);
+        palette.ClientSizeChanged += (_, _) => ResizePaletteItems();
+        ResizePaletteItems();
 
         var content = new SplitContainer { Dock = DockStyle.Fill, FixedPanel = FixedPanel.Panel2, SplitterDistance = 880 };
         main.Panel2.Controls.Add(content);
         Shown += (_, _) =>
         {
-            main.SplitterDistance = 270;
+            main.Panel1MinSize = 300;
+            main.Panel2MinSize = 450;
+            main.SplitterDistance = Math.Clamp(320, main.Panel1MinSize, main.Width - main.Panel2MinSize - main.SplitterWidth);
             content.SplitterDistance = Math.Max(250, content.Width - 330);
+            ResizePaletteItems();
         };
         var editorSurface = new Panel { Dock = DockStyle.Fill };
         content.Panel1.Controls.Add(editorSurface);
@@ -327,6 +360,20 @@ internal sealed class MainForm : Form
         var modeBar = new ToolStrip { Dock = DockStyle.Top, Height = 39, AutoSize = false,
             CanOverflow = true, GripStyle = ToolStripGripStyle.Hidden, BackColor = Color.FromArgb(232, 237, 244) };
         editorSurface.Controls.Add(modeBar);
+        var togglePalette = new ToolStripButton { DisplayStyle = ToolStripItemDisplayStyle.Text,
+            Padding = new Padding(7, 2, 7, 2), Font = new Font("Segoe UI", 9f, FontStyle.Bold) };
+        void RefreshPaletteToggle()
+        {
+            togglePalette.Text = UiLanguage.T(main.Panel1Collapsed ? "▶ Показать блоки" : "◀ Скрыть блоки");
+            togglePalette.ToolTipText = UiLanguage.T(main.Panel1Collapsed
+                ? "Открыть список блоков слева" : "Свернуть список блоков влево");
+        }
+        togglePalette.Click += (_, _) =>
+        {
+            main.Panel1Collapsed = !main.Panel1Collapsed;
+            RefreshPaletteToggle();
+        };
+        RefreshPaletteToggle();
         _visualModeButton = new ToolStripButton(UiLanguage.T("▦ Блоки")) { Checked = true };
         _codeModeButton = new ToolStripButton(UiLanguage.T("≡ Код Kliker Blocks"));
         _applyCodeButton = new ToolStripButton(UiLanguage.T("Применить код")) { Enabled = false };
@@ -335,7 +382,7 @@ internal sealed class MainForm : Form
         _codeModeButton.Click += (_, _) => SwitchEditorView(true);
         _applyCodeButton.Click += (_, _) => TryApplyGraphCode();
         _revertCodeButton.Click += (_, _) => LoadGraphCode();
-        modeBar.Items.AddRange([_visualModeButton, _codeModeButton, _applyCodeButton,
+        modeBar.Items.AddRange([togglePalette, new ToolStripSeparator(), _visualModeButton, _codeModeButton, _applyCodeButton,
             _revertCodeButton, new ToolStripSeparator(), _codeStatus]);
         var shareButton = new ToolStripButton(UiLanguage.T("Поделиться графом…"));
         shareButton.Click += (_, _) => ShareProject();
@@ -2568,6 +2615,8 @@ internal sealed class GraphCanvas : Control
     private (Guid Id, string Port)? _pending;
     private (Guid Id, string Port)? _selectedLink;
     private (Guid Id, string Port)? _hoveredLink;
+    private string? _hoveredPort;
+    private readonly ToolTip _portToolTip = new() { ShowAlways = true, InitialDelay = 250, ReshowDelay = 100, AutoPopDelay = 5000 };
     private Size _worldSize = new(2200, 1500);
     private float _zoom = 1f;
     private float _panX;
@@ -2804,21 +2853,26 @@ internal sealed class GraphCanvas : Control
             if (node.Breakpoint)
             {
                 using var marker = new SolidBrush(Color.FromArgb(221, 59, 62));
-                using var markerOutline = new Pen(Color.White, 2);
-                g.FillEllipse(marker, rectangle.Right - 23, rectangle.Top + 7, 12, 12);
-                g.DrawEllipse(markerOutline, rectangle.Right - 23, rectangle.Top + 7, 12, 12);
+                using var markerOutline = new Pen(Color.White, 1.5f);
+                var badge = BreakpointBadgeBounds(node);
+                g.FillRectangle(marker, badge);
+                g.DrawRectangle(markerOutline, badge);
+                using var pause = new Pen(Color.White, 2f);
+                g.DrawLine(pause, badge.Left + 5, badge.Top + 4, badge.Left + 5, badge.Bottom - 4);
+                g.DrawLine(pause, badge.Left + 11, badge.Top + 4, badge.Left + 11, badge.Bottom - 4);
             }
-            using var titleFont = new Font(Font.FontFamily, 10, FontStyle.Bold);
+            var blockBounds = BlockCatalog.Bounds(node);
             using var hintFont = new Font(Font.FontFamily, 8);
             var title = node.Kind == "ShowcaseStep" ? node.Value("Caption", UiLanguage.T(spec.Title)) :
                 UiLanguage.T(spec.Title);
             var tall = appearance.Shape is "Square" or "Circle" or "Diamond";
+            var titleBounds = TitleTextBounds(node, tall);
             using var centerText = new StringFormat { Alignment = StringAlignment.Center,
                 Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap };
-            if (tall) g.DrawString(title, titleFont, Brushes.White,
-                new RectangleF(node.X + 23, node.Y + 62, BlockCatalog.Width - 46, 24), centerText);
-            else g.DrawString(title, titleFont, Brushes.White,
-                new RectangleF(node.X + 14, node.Y + 7, BlockCatalog.Width - 28, 22));
+            using var titleFont = new Font(Font.FontFamily,
+                FitTitleFontSize(g, title, Font.FontFamily, appearance.TitleFontSize, titleBounds.Width, appearance.AutoFitTitle),
+                FontStyle.Bold);
+            g.DrawString(title, titleFont, Brushes.White, titleBounds, centerText);
             var hint = UiLanguage.TOr(spec.Hint, "Настройте параметры блока ниже.");
             if (node.Kind == "WatchCursor")
             {
@@ -2834,8 +2888,8 @@ internal sealed class GraphCanvas : Control
                 hint = $"{node.Value("ActivationKey", "F9")} {UiLanguage.T(mode)} + {UiLanguage.T(required)}";
             }
             g.DrawString(hint, hintFont, Brushes.WhiteSmoke,
-                tall ? new RectangleF(node.X + 34, node.Y + 89, BlockCatalog.Width - 68, 19)
-                     : new RectangleF(node.X + 14, node.Y + 28, 165, 19),
+                tall ? new RectangleF(node.X + 34, node.Y + 89, blockBounds.Width - 68, 19)
+                     : new RectangleF(node.X + 14, node.Y + 28, blockBounds.Width - 28, 19),
                 tall ? centerText : StringFormat.GenericDefault);
             if (node.Kind != "Start")
             {
@@ -2848,12 +2902,6 @@ internal sealed class GraphCanvas : Control
                 PortPainter.Draw(g, p,
                     appearance.OutputPorts.GetValueOrDefault(spec.Outputs[i]) ?? new PortAppearance(),
                     _pending == (node.Id, spec.Outputs[i]) ? Color.Gold : Color.White);
-                if (spec.Outputs[i] == "Далее") continue;
-                using var labelFormat = new StringFormat { Alignment = tall ? StringAlignment.Center : StringAlignment.Far,
-                    Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap };
-                g.DrawString(UiLanguage.T(spec.Outputs[i]), hintFont, Brushes.White,
-                    tall ? new RectangleF(node.X + 50, node.Y + 117 + i * 21, BlockCatalog.Width - 100, 18)
-                         : new RectangleF(node.X + 14, p.Y - 24, BlockCatalog.Width - 31, 18), labelFormat);
             }
         }
         if (_insertionWorldPoint is { } insertion)
@@ -2977,7 +3025,7 @@ internal sealed class GraphCanvas : Control
         }
         var world = ToWorld(e.Location);
         var hit = Project.Nodes.LastOrDefault(n => n.Kind != "Description" &&
-            new Rectangle(n.X - 12, n.Y - 12, BlockCatalog.Width + 24, BlockCatalog.Height(n) + 24).Contains(world));
+            Rectangle.Inflate(BlockCatalog.Bounds(n), 12, 12).Contains(world));
         if (hit == null && e.Button == MouseButtons.Left && HitLink(world) is { } selectedLink)
         {
             SelectLink(selectedLink.Source, selectedLink.Port, selectedLink.Target);
@@ -3031,6 +3079,20 @@ internal sealed class GraphCanvas : Control
             return;
         }
         var spec = BlockCatalog.Get(hit.Kind);
+        if (e.Button == MouseButtons.Left && _pending is { } pending && hit.Kind != "Start" &&
+            Distance(InputPoint(hit), world) <= Math.Max(12, BlockAppearanceManager.Resolve(hit).InputPort.Size / 2f + 4) / _zoom)
+        {
+            var source = Project.Nodes.FirstOrDefault(n => n.Id == pending.Id);
+            if (source != null && source.Id != hit.Id)
+            {
+                source.Links[pending.Port] = hit.Id;
+                Message?.Invoke($"Соединено: {BlockCatalog.Get(source.Kind).Title} → {spec.Title}");
+            }
+            _pending = null;
+            Select(hit);
+            Invalidate();
+            return;
+        }
         for (var i = 0; i < spec.Outputs.Length; i++)
         {
             var port = OutputPoint(hit, i);
@@ -3047,21 +3109,6 @@ internal sealed class GraphCanvas : Control
                 _pending = (hit.Id, spec.Outputs[i]);
                 Message?.Invoke($"Выбран выход «{spec.Outputs[i]}». Нажмите на кружок входа нужного блока.");
             }
-            Select(hit);
-            Invalidate();
-            return;
-        }
-        if (hit.Kind != "Start" && Distance(InputPoint(hit), world) <=
-            Math.Max(12, BlockAppearanceManager.Resolve(hit).InputPort.Size / 2f + 4) / _zoom &&
-            _pending is { } pending)
-        {
-            var source = Project.Nodes.FirstOrDefault(n => n.Id == pending.Id);
-            if (source != null && source.Id != hit.Id)
-            {
-                source.Links[pending.Port] = hit.Id;
-                Message?.Invoke($"Соединено: {BlockCatalog.Get(source.Kind).Title} → {spec.Title}");
-            }
-            _pending = null;
             Select(hit);
             Invalidate();
             return;
@@ -3109,9 +3156,35 @@ internal sealed class GraphCanvas : Control
         if (_dragging == null)
         {
             var hoverWorld = ToWorld(e.Location);
+            var port = HitPort(hoverWorld);
+            var breakpoint = HitBreakpointBadge(hoverWorld);
+            var portKey = port is { } hovered
+                ? $"{hovered.Node.Id:N}:{hovered.IsInput}:{hovered.Name}" : null;
+            var hintKey = portKey ?? (breakpoint is null ? null : "breakpoint:" + breakpoint.Id.ToString("N"));
+            if (_hoveredPort != hintKey)
+            {
+                _hoveredPort = hintKey;
+                if (port is { } point)
+                {
+                    var label = point.IsInput
+                        ? UiLanguage.T("Вход")
+                        : UiLanguage.T("Выход") + ": " + UiLanguage.T(point.Name);
+                    _portToolTip.Show(label, this, e.Location.X + 14, e.Location.Y + 18, 5000);
+                }
+                else if (breakpoint != null)
+                    _portToolTip.Show(UiLanguage.T("Точка останова перед блоком") + ": " +
+                        UiLanguage.T("Приостанавливает сценарий перед выполнением блока."),
+                        this, e.Location.X + 14, e.Location.Y + 18, 5000);
+                else _portToolTip.Hide(this);
+            }
+            if (port != null || breakpoint != null)
+            {
+                Cursor = breakpoint != null ? Cursors.Help : Cursors.Hand;
+                return;
+            }
             var grip = HitDescription(hoverWorld, out var resize);
             var node = Project.Nodes.LastOrDefault(n => n.Kind != "Description" &&
-                new Rectangle(n.X - 12, n.Y - 12, BlockCatalog.Width + 24, BlockCatalog.Height(n) + 24).Contains(hoverWorld));
+                Rectangle.Inflate(BlockCatalog.Bounds(n), 12, 12).Contains(hoverWorld));
             var link = grip == null && node == null ? HitLink(hoverWorld) : null;
             var next = link is { } found ? (found.Source.Id, found.Port) : ((Guid Id, string Port)?)null;
             if (_hoveredLink != next) { _hoveredLink = next; Invalidate(); }
@@ -3127,9 +3200,9 @@ internal sealed class GraphCanvas : Control
     protected override void OnMouseLeave(EventArgs e)
     {
         base.OnMouseLeave(e);
-        if (_hoveredLink is null) return;
-        _hoveredLink = null;
-        Invalidate();
+        _portToolTip.Hide(this);
+        _hoveredPort = null;
+        if (_hoveredLink is not null) { _hoveredLink = null; Invalidate(); }
     }
 
     protected override void OnMouseUp(MouseEventArgs e)
@@ -3234,6 +3307,109 @@ internal sealed class GraphCanvas : Control
 
     private static Point InputPoint(BlockNode node) => GraphLinkRouter.InputPoint(node);
     private static Point OutputPoint(BlockNode node, int index) => GraphLinkRouter.OutputPoint(node, index);
+
+    private (BlockNode Node, bool IsInput, string Name)? HitPort(Point world)
+    {
+        foreach (var node in Project.Nodes.Where(node => node.Kind != "Description").Reverse())
+        {
+            var appearance = BlockAppearanceManager.Resolve(node);
+            if (node.Kind != "Start" && Distance(InputPoint(node), world) <=
+                Math.Max(12, appearance.InputPort.Size / 2f + 4) / _zoom)
+                return (node, true, "Вход");
+            var outputs = BlockCatalog.Get(node.Kind).Outputs;
+            for (var i = 0; i < outputs.Length; i++)
+            {
+                var size = appearance.OutputPorts.GetValueOrDefault(outputs[i])?.Size ?? 14;
+                if (Distance(OutputPoint(node, i), world) <= Math.Max(12, size / 2f + 4) / _zoom)
+                    return (node, false, outputs[i]);
+            }
+        }
+        return null;
+    }
+
+    private BlockNode? HitBreakpointBadge(Point world) => Project.Nodes
+        .LastOrDefault(node => node.Kind != "Description" && node.Breakpoint &&
+            BreakpointBadgeBounds(node).Contains(world));
+
+    internal static Rectangle BreakpointBadgeBounds(BlockNode node)
+    {
+        var bounds = BlockCatalog.Bounds(node);
+        const int size = 16;
+        const int inset = 7;
+        var top = bounds.Top + inset;
+        var min = bounds.Left + inset;
+        var max = bounds.Right - inset - size;
+        var ports = ConnectorBounds(node).Where(port => port.Top < top + size && port.Bottom > top).ToArray();
+        Rectangle? best = null;
+        var bestTitleWidth = -1;
+        for (var left = min; left <= max; left++)
+        {
+            var candidate = new Rectangle(left, top, size, size);
+            if (ports.Any(port => port.IntersectsWith(candidate))) continue;
+            var titleWidth = BuildTitleBounds(node, bounds, false, candidate).Width;
+            if (titleWidth <= bestTitleWidth) continue;
+            best = candidate;
+            bestTitleWidth = titleWidth;
+        }
+        return best ?? new Rectangle(min, top, size, size);
+    }
+
+    internal static Rectangle TitleTextBounds(BlockNode node, bool tall)
+    {
+        var bounds = BlockCatalog.Bounds(node);
+        var badge = node.Breakpoint ? BreakpointBadgeBounds(node) : (Rectangle?)null;
+        return BuildTitleBounds(node, bounds, tall, badge);
+    }
+
+    private static Rectangle BuildTitleBounds(BlockNode node, Rectangle bounds, bool tall, Rectangle? badge)
+    {
+        var top = bounds.Top + (tall ? 62 : 7);
+        var height = tall ? 24 : 22;
+        var left = bounds.Left + (tall ? 23 : 14);
+        var right = bounds.Right - (tall ? 23 : 14);
+        if (!tall && badge is { } marker) left = Math.Max(left, marker.Right + 7);
+        var obstacles = ConnectorBounds(node).Where(port => port.Top < top + height && port.Bottom > top)
+            .OrderBy(port => port.Left).ToArray();
+        while (true)
+        {
+            var overlapping = obstacles.FirstOrDefault(port => port.Left <= left && port.Right > left);
+            if (overlapping.IsEmpty) break;
+            left = overlapping.Right + 4;
+        }
+        var nextPort = obstacles.FirstOrDefault(port => port.Left > left);
+        if (!nextPort.IsEmpty) right = Math.Min(right, nextPort.Left - 4);
+        return new Rectangle(left, top, Math.Max(1, right - left), height);
+    }
+
+    private static Rectangle[] ConnectorBounds(BlockNode node)
+    {
+        var appearance = BlockAppearanceManager.Resolve(node);
+        var bounds = new List<Rectangle>();
+        void Add(Point point, PortAppearance port)
+        {
+            var radius = (port.Size + 2) / 2;
+            bounds.Add(new Rectangle(point.X - radius, point.Y - radius, radius * 2, radius * 2));
+        }
+        if (node.Kind != "Start") Add(GraphLinkRouter.InputPoint(node), appearance.InputPort);
+        var outputs = BlockCatalog.Get(node.Kind).Outputs;
+        for (var index = 0; index < outputs.Length; index++)
+            Add(GraphLinkRouter.OutputPoint(node, index),
+                appearance.OutputPorts.GetValueOrDefault(outputs[index]) ?? new PortAppearance());
+        return bounds.ToArray();
+    }
+
+    internal static float FitTitleFontSize(Graphics graphics, string title, FontFamily family,
+        int preferredSize, int availableWidth, bool autoFit)
+    {
+        var size = (float)Math.Clamp(preferredSize, 7, 16);
+        if (!autoFit) return size;
+        for (; size > 7; size -= 0.5f)
+        {
+            using var font = new Font(family, size, FontStyle.Bold);
+            if (graphics.MeasureString(title, font).Width <= availableWidth) return size;
+        }
+        return 7;
+    }
     private static double Distance(Point a, Point b) => Math.Sqrt((double)(a.X - b.X) * (a.X - b.X) + (double)(a.Y - b.Y) * (a.Y - b.Y));
 }
 

@@ -7,6 +7,9 @@ namespace KlikerBlocks;
 public sealed class BlockAppearance
 {
     public string Shape { get; set; } = "Rounded";
+    public int Width { get; set; } = BlockCatalog.Width;
+    public int TitleFontSize { get; set; } = 10;
+    public bool AutoFitTitle { get; set; } = true;
     // Empty means the block category's original color.
     public string FillColor { get; set; } = "";
     public int FillOpacityPercent { get; set; } = 100;
@@ -21,6 +24,7 @@ public sealed class BlockAppearance
 
     public bool IsValid() =>
         Shape is "Rounded" or "Rectangle" or "Square" or "Circle" or "Diamond" &&
+        Width is >= 196 and <= 480 && TitleFontSize is >= 7 and <= 16 &&
         FillColor is not null && (FillColor.Length == 0 || Hex(FillColor)) && Hex(BorderColor) &&
         FillOpacityPercent is >= 0 and <= 100 && BorderOpacityPercent is >= 0 and <= 100 &&
         BorderWidth is >= 1 and <= 12 &&
@@ -34,6 +38,9 @@ public sealed class BlockAppearance
     public BlockAppearance Copy() => new()
     {
         Shape = Shape,
+        Width = Width,
+        TitleFontSize = TitleFontSize,
+        AutoFitTitle = AutoFitTitle,
         FillColor = FillColor,
         FillOpacityPercent = FillOpacityPercent,
         BorderColor = BorderColor,

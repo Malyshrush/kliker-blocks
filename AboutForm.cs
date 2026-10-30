@@ -69,7 +69,10 @@ internal sealed class AboutForm : Form
     }
 
     private static string BuildReleases(Copy copy) =>
-        "v1.2.2\r\n" + (UiLanguage.Code == "ru"
+        (UiLanguage.Code == "ru" ? "v1.2.3\r\n" : "v1.2.3\r\n") + (UiLanguage.Code == "ru"
+            ? "Обновлена левая панель блоков: её можно свернуть влево и раскрыть обратно; при изменении ширины названия не обрезаются. Исправлено раскрытие всех разделов. Каждый разъём блока расположен на контуре, настраивается и соединяется; подписи скрыты, название показывается при наведении. Значок точки останова размещается с учётом размера и положения разъёмов и не закрывает заголовок; текст заголовка также обходит разъёмы. В настройках блока можно задать ширину 196–480 и размер заголовка 7–16 с автоматической подгонкой. OCR принимает PNG, JPEG, BMP, TIFF, GIF, WebP и сканированные PDF: отдельную страницу или до 20 страниц; рендеринг выполняется локально через PDFium перед Tesseract. Пути движка и файла с кириллицей передаются через короткие имена Windows, если они доступны. Установщик Tesseract запускается с запросом прав Windows; отказ UAC показывает понятный статус."
+            : "The block palette can collapse to the left and expand again; labels adapt when its width changes. All categories now expand. Every configurable connector sits on the outline and can be connected; labels are hidden and names appear on hover. The breakpoint badge avoids connectors using their size and position, and the title also avoids ports. Block settings include width 196–480 and title size 7–16 with automatic fitting. OCR accepts PNG, JPEG, BMP, TIFF, GIF, WebP and scanned PDFs: one page or up to 20 pages, rendered locally through PDFium before Tesseract. Engine and file paths with Cyrillic characters use Windows short names when available. Tesseract setup requests Windows elevation and reports a declined UAC prompt clearly.") +
+        "\r\n\r\nv1.2.2\r\n" + (UiLanguage.Code == "ru"
             ? "Блок «Распознать текст» предлагает установить Tesseract OCR и только выбранные языковые модели после явного согласия; распознавание выполняется локально."
             : "The Recognize text block offers to install Tesseract OCR and only the selected language models after explicit consent; recognition stays local.") +
         "\r\n\r\nv1.2.1\r\n" + (UiLanguage.Code == "ru"

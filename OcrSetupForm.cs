@@ -20,13 +20,13 @@ internal sealed class OcrSetupForm : Form
         MaximizeBox = false;
         MinimizeBox = false;
         Width = 580;
-        Height = 330;
+        Height = 360;
         var panel = new FlowLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(17),
             FlowDirection = FlowDirection.TopDown, WrapContents = false };
         Controls.Add(panel);
-        panel.Controls.Add(new Label { Width = 525, Height = 86, Text = L(
-            "Блоку «Распознать текст» нужен локальный Tesseract OCR. По вашему согласию Kliker Blocks скачает Windows-сборку Tesseract 5.5.0 из релиза Tesseract на GitHub (20,4 МиБ), установит её только для текущего пользователя и добавит модели: " + languages + ".\n\nМодели обычно добавляют несколько МиБ каждая. Изображения остаются на компьютере.",
-            "The “Recognize text” block needs local Tesseract OCR. With your consent, Kliker Blocks downloads the Tesseract 5.5.0 Windows build from the Tesseract GitHub release (20.4 MiB), installs it for the current user only, and adds these models: " + languages + ".\n\nModels usually add a few MiB each. Images stay on this computer."),
+        panel.Controls.Add(new Label { Width = 525, Height = 105, Text = L(
+            "Блоку «Распознать текст» нужен локальный Tesseract OCR. По вашему согласию Kliker Blocks скачает Windows-сборку Tesseract 5.5.3 от UB Mannheim из релиза Tesseract на GitHub (около 24,1 МиБ / 25,3 МБ) и добавит модели: " + languages + ".\n\nУстановщик сохранит файлы в папке ниже; Windows может запросить отдельное подтверждение прав. Модели обычно добавляют несколько МиБ каждая. Изображения остаются на компьютере.",
+            "The “Recognize text” block needs local Tesseract OCR. With your consent, Kliker Blocks downloads the UB Mannheim Tesseract 5.5.3 Windows build from the Tesseract GitHub release (about 24.1 MiB / 25.3 MB) and adds these models: " + languages + ".\n\nThe installer saves files in the folder below; Windows may request a separate permissions confirmation. Models usually add a few MiB each. Images stay on this computer."),
             MaximumSize = new Size(525, 0) });
         _install.Text = L("Скачать и установить", "Download and install");
         _install.Click += async (_, _) => await InstallAsync();
@@ -52,8 +52,8 @@ internal sealed class OcrSetupForm : Form
         try { _ = TesseractInstaller.ParseLanguages(_languages); }
         catch (Exception error) { _status.Text = error.Message; return; }
         var confirmation = L(
-            "Продолжить? Будут загружены Tesseract и только модели из поля «Код языка OCR». Компоненты будут установлены в:\n",
-            "Continue? Tesseract and only the models from the “OCR language code” field will be downloaded. Components will be installed in:\n") +
+            "Продолжить? Будут загружены Tesseract и только модели из поля «Код языка OCR». Windows может запросить подтверждение прав для установщика. Файлы будут сохранены в:\n",
+            "Continue? Tesseract and only the models from the “OCR language code” field will be downloaded. Windows may ask to confirm elevated permissions for the installer. Files will be saved in:\n") +
             TesseractInstaller.Root;
         if (MessageBox.Show(this, confirmation, Text, MessageBoxButtons.YesNo,
                 MessageBoxIcon.Question) != DialogResult.Yes) return;
@@ -67,6 +67,7 @@ internal sealed class OcrSetupForm : Form
             Close();
         }
         catch (OperationCanceledException) when (_cancel.IsCancellationRequested) { }
+        catch (OperationCanceledException error) { _status.Text = error.Message; }
         catch (Exception error)
         {
             _status.Text = L("Установка не завершена: ", "Installation did not finish: ") + error.Message;

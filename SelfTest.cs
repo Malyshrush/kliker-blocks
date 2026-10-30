@@ -1,9 +1,12 @@
 using System.Drawing;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Collections.Concurrent;
 using System.Reflection;
 using System.IO.Compression;
 using System.Runtime.InteropServices;
+using System.Drawing.Imaging;
+using SkiaSharp;
 
 namespace KlikerBlocks;
 
@@ -2028,6 +2031,26 @@ internal static class SelfTest
         try
         {
             BlockAppearanceManager.Reload(new AppSettings());
+            foreach (var spec in BlockCatalog.All.Where(spec => spec.Kind != "Description"))
+            {
+                Assert(spec.Outputs.All(name => !string.IsNullOrWhiteSpace(name)) &&
+                    spec.Outputs.Distinct(StringComparer.Ordinal).Count() == spec.Outputs.Length,
+                    $"{spec.Kind} has a unique semantic name for each output port");
+                var configured = BlockCatalog.Create(spec.Kind, 180, 180);
+                using var appearanceForm = new BlockAppearanceForm(configured);
+                var portSelector = (ComboBox)typeof(BlockAppearanceForm).GetField("_port",
+                    BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(appearanceForm)!;
+                var expectedPorts = spec.Outputs.Length + (spec.Kind == "Start" ? 0 : 1);
+                Assert(portSelector.Items.Count == expectedPorts,
+                    $"{spec.Kind} appearance editor exposes every input and output port");
+                using var defaultOutline = BlockGeometry.Outline(BlockCatalog.Bounds(configured),
+                    BlockAppearanceManager.Resolve(configured).Shape);
+                using var outlinePen = new Pen(Color.Black, 5);
+                Assert(Enumerable.Range(0, spec.Outputs.Length).All(index =>
+                    defaultOutline.IsOutlineVisible(GraphLinkRouter.OutputPoint(configured, index), outlinePen)) &&
+                    (spec.Kind == "Start" || defaultOutline.IsOutlineVisible(GraphLinkRouter.InputPoint(configured), outlinePen)),
+                    $"{spec.Kind} places every connector on the block outline");
+            }
             var input = GraphLinkRouter.InputPoint(middle);
             var output = GraphLinkRouter.OutputPoint(start, 0);
             Assert(input.X <= middle.X + 20 && input.Y <= middle.Y + 20 &&
@@ -2037,6 +2060,30 @@ internal static class SelfTest
             using (var outline = BlockGeometry.Outline(BlockCatalog.Bounds(middle), "Rounded"))
                 Assert(outline.IsOutlineVisible(input, new Pen(Color.Black, 5)),
                     "default input lies on rounded outline");
+            middle.Appearance = new BlockAppearance { Width = 340, TitleFontSize = 16, AutoFitTitle = true };
+            var resizedBounds = BlockCatalog.Bounds(middle);
+            using (var resizedOutline = BlockGeometry.Outline(resizedBounds, "Rounded"))
+            using (var canvas = new Bitmap(400, 120))
+            using (var graphics = Graphics.FromImage(canvas))
+            using (var testPen = new Pen(Color.Black, 5))
+            using (var fittedFont = new Font(FontFamily.GenericSansSerif,
+                GraphCanvas.FitTitleFontSize(graphics, "Ожидать событие", FontFamily.GenericSansSerif,
+                    16, 150, true), FontStyle.Bold))
+                Assert(resizedBounds.Width == 340 &&
+                    resizedOutline.IsOutlineVisible(GraphLinkRouter.OutputPoint(middle, 0), testPen) &&
+                    graphics.MeasureString("Ожидать событие", fittedFont).Width <= 150,
+                    "block width is configurable, ports follow its outline, and long titles auto-fit");
+            var waitBreakpoint = BlockCatalog.Create("WaitEvent", 30, 30);
+            waitBreakpoint.Breakpoint = true;
+            waitBreakpoint.Appearance = new BlockAppearance { InputAngle = 225,
+                InputPort = new PortAppearance { Size = 36 } };
+            var waitInput = GraphLinkRouter.InputPoint(waitBreakpoint);
+            var largeInputBounds = new Rectangle(waitInput.X - 19, waitInput.Y - 19, 38, 38);
+            var pauseBadge = GraphCanvas.BreakpointBadgeBounds(waitBreakpoint);
+            var waitTitle = GraphCanvas.TitleTextBounds(waitBreakpoint, false);
+            Assert(!pauseBadge.IntersectsWith(largeInputBounds) &&
+                !waitTitle.IntersectsWith(largeInputBounds) && waitTitle.Left >= pauseBadge.Right + 7,
+                "large upper-left input connector shifts the breakpoint badge and title without overlap");
             foreach (var shape in new[] { "Rectangle", "Square", "Circle", "Diamond" })
             {
                 middle.Appearance = new BlockAppearance { Shape = shape, InputAngle = 270,
@@ -2112,11 +2159,74 @@ internal static class SelfTest
             using (var descriptionAppearance = new BlockAppearanceForm(BlockCatalog.Create("Description", 0, 0)))
                 Assert(descriptionAppearance.Appearance.IsValid(),
                     "appearance editor opens for a description block without connector controls");
+            var wait = BlockCatalog.Create("WaitEvent", 300, 300);
+            var waitTarget = BlockCatalog.Create("Log", 650, 300);
+            var waitCanvas = new GraphCanvas { Project = new ProjectModel { Nodes = [wait, waitTarget] } };
+            var timeout = GraphLinkRouter.OutputPoint(wait, Array.IndexOf(BlockCatalog.Get("WaitEvent").Outputs, "Таймаут"));
+            var inputPoint = GraphLinkRouter.InputPoint(waitTarget);
+            var move = typeof(GraphCanvas).GetMethod("OnMouseMove", BindingFlags.NonPublic | BindingFlags.Instance)!;
+            var down = typeof(GraphCanvas).GetMethod("OnMouseDown", BindingFlags.NonPublic | BindingFlags.Instance)!;
+            move.Invoke(waitCanvas, [new MouseEventArgs(MouseButtons.None, 0, timeout.X, timeout.Y, 0)]);
+            var hoveredPort = typeof(GraphCanvas).GetField("_hoveredPort", BindingFlags.NonPublic | BindingFlags.Instance)!
+                .GetValue(waitCanvas) as string;
+            Assert(hoveredPort?.Contains("Таймаут", StringComparison.Ordinal) == true,
+                "hovering a semantic output activates its tooltip target");
+            move.Invoke(waitCanvas, [new MouseEventArgs(MouseButtons.None, 0, 1050, 700, 0)]);
+            Assert(typeof(GraphCanvas).GetField("_hoveredPort", BindingFlags.NonPublic | BindingFlags.Instance)!
+                    .GetValue(waitCanvas) is null,
+                "moving the pointer off a connector hides its tooltip");
+            down.Invoke(waitCanvas, [new MouseEventArgs(MouseButtons.Left, 1, timeout.X, timeout.Y, 0)]);
+            down.Invoke(waitCanvas, [new MouseEventArgs(MouseButtons.Left, 1, inputPoint.X, inputPoint.Y, 0)]);
+            Assert(wait.Links.GetValueOrDefault("Таймаут") == waitTarget.Id,
+                "every named output port can connect to another block input");
+            using (var allPortsCanvas = new GraphCanvas())
+            {
+                foreach (var spec in BlockCatalog.All.Where(spec => spec.Kind != "Description"))
+                {
+                    var source = BlockCatalog.Create(spec.Kind, 40, 80);
+                    var portTarget = BlockCatalog.Create("Log", 620, 80);
+                    allPortsCanvas.Project = new ProjectModel { Nodes = [source, portTarget] };
+                    for (var index = 0; index < spec.Outputs.Length; index++)
+                    {
+                        var portOutput = GraphLinkRouter.OutputPoint(source, index);
+                        var portInput = GraphLinkRouter.InputPoint(portTarget);
+                        down.Invoke(allPortsCanvas, [new MouseEventArgs(MouseButtons.Left, 1, portOutput.X, portOutput.Y, 0)]);
+                        down.Invoke(allPortsCanvas, [new MouseEventArgs(MouseButtons.Left, 1, portInput.X, portInput.Y, 0)]);
+                        Assert(source.Links.GetValueOrDefault(spec.Outputs[index]) == portTarget.Id,
+                            $"{spec.Kind}.{spec.Outputs[index]} connects to another block input");
+                    }
+                }
+            }
+            waitCanvas.Dispose();
+
+            var breakpointNode = BlockCatalog.Create("Log", 280, 140);
+            breakpointNode.Breakpoint = true;
+            using (var breakpointCanvas = new GraphCanvas { Project = new ProjectModel { Nodes = [breakpointNode] } })
+            {
+                move.Invoke(breakpointCanvas, [new MouseEventArgs(MouseButtons.None, 0,
+                    breakpointNode.X + 15, breakpointNode.Y + 15, 0)]);
+                var breakpointHint = typeof(GraphCanvas).GetField("_hoveredPort",
+                    BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(breakpointCanvas) as string;
+                Assert(breakpointHint == "breakpoint:" + breakpointNode.Id.ToString("N"),
+                    "breakpoint badge has its own explanatory hover hint");
+            }
+
+            using (var section = new PaletteSectionHeader("Тестовый раздел"))
+            {
+                var clicked = false;
+                section.Clicked += (_, _) => clicked = true;
+                var titleClick = section.Controls[1].GetType().GetMethod("OnClick",
+                    BindingFlags.NonPublic | BindingFlags.Instance)!;
+                titleClick.Invoke(section.Controls[1], [EventArgs.Empty]);
+                Assert(clicked, "palette section title raises the custom expansion event");
+            }
             Assert(DataTools.JsonValue("{\"user\":{\"name\":\"Alex\"},\"items\":[{\"id\":7}]}",
                 "user.name") == "Alex" && DataTools.JsonValue("{\"items\":[{\"id\":7}]}",
                 "items[0].id") == "7", "JSON path resolves nested properties and array indexes");
             var snapshot = BlockClipboard.Copy([middle]);
             Assert(snapshot.Single().Appearance?.Shape == "Circle" &&
+                snapshot.Single().Appearance?.Width == middle.Appearance?.Width &&
+                snapshot.Single().Appearance?.AutoFitTitle == middle.Appearance?.AutoFitTitle &&
                 snapshot.Single().Appearance?.InputPort.Size == 22 &&
                 !ReferenceEquals(snapshot.Single().Appearance, middle.Appearance),
                 "block appearance is copied independently");
@@ -2130,8 +2240,15 @@ internal static class SelfTest
                 BlockAppearanceManager.Resolve(middle).Shape == "Circle",
                 "per-type default applies to new blocks and local appearance overrides it");
             UiLanguage.Configure("en");
-            foreach (var text in new[] { "Оформление блока…", "Форма блока", "Точка на контуре",
+            foreach (var text in new[] { "Оформление блока…", "Форма блока", "Ширина блока (196–480)",
+                "Размер заголовка (7–16)", "Автоматически уменьшать заголовок, если он не помещается",
+                "Страница PDF (номер; 0 = все, не более 20)", "Путь к изображению или PDF",
+                "Локальный OCR изображений и PDF", "PDF-файл для OCR больше 32 МиБ.",
+                "PDF-файл для OCR не найден.", "Изображение OCR должно быть не больше 32 МиБ.",
+                "Для OCR PDF-файла ожидается расширение .pdf.", "Размер и заголовок блока",
+                "Форма блока", "Точка на контуре",
                 "Выбрать цвет заливки…", "Оформление связи", "Штриховая", "Стрелка",
+                "Приостанавливает сценарий перед выполнением блока.",
                 "Форма выбранной точки", "Размер выбранной точки (6–36)",
                 "Размер наконечника (4–48)", "Прямой участок от выхода (0–200)",
                 "Прямой участок перед входом (0–200)",
@@ -2618,6 +2735,18 @@ internal static class SelfTest
         {
             var image = Path.Combine(directory, "screen.png");
             File.WriteAllBytes(image, [137, 80, 78, 71]);
+            var unicodeImage = Path.Combine(directory, "снимок.png");
+            File.WriteAllBytes(unicodeImage, [137, 80, 78, 71]);
+            var unicodeEngine = Path.Combine(directory, "Tesseract-кириллица.exe");
+            File.WriteAllBytes(unicodeEngine, [0x4d, 0x5a]);
+            var resolvedUnicodeEngine = OcrTools.ResolveEngine(unicodeEngine);
+            var nativeImage = OcrTools.ToNativePath(Path.GetFullPath(unicodeImage));
+            Assert(File.Exists(resolvedUnicodeEngine) && File.Exists(nativeImage) &&
+                (resolvedUnicodeEngine.All(character => character <= 0x7f) ||
+                    resolvedUnicodeEngine == Path.GetFullPath(unicodeEngine)) &&
+                (nativeImage.All(character => character <= 0x7f) ||
+                    nativeImage == Path.GetFullPath(unicodeImage)),
+                "OCR resolves Unicode engine and image paths to ASCII Windows short paths when available");
             var invalidLanguage = false;
             try { OcrTools.ReadAsync(image, "eng;rm", "", 30000, CancellationToken.None)
                     .GetAwaiter().GetResult(); }
@@ -2626,15 +2755,20 @@ internal static class SelfTest
             try { OcrTools.ResolveEngine(Path.Combine(directory, "missing.exe")); }
             catch (FileNotFoundException) { missingEngine = true; }
             var languages = TesseractInstaller.ParseLanguages("eng+rus+eng");
+            var setupStart = TesseractInstaller.CreateInstallerStartInfo("setup.exe",
+                ["/VERYSILENT", "/DIR=C:\\Users\\Test User\\AppData\\Local\\KLIKER Blocks\\Tesseract-OCR"]);
+            var elevationStartsCorrectly = setupStart.UseShellExecute && setupStart.Verb == "runas" &&
+                setupStart.ArgumentList.Count == 2 && setupStart.ArgumentList[1].Contains("Test User", StringComparison.Ordinal);
             var invalidInstallerLanguage = false;
             try { TesseractInstaller.ParseLanguages("eng;rm"); }
             catch (InvalidOperationException) { invalidInstallerLanguage = true; }
             Assert(invalidLanguage && missingEngine && languages.SequenceEqual(["eng", "rus"]) &&
-                invalidInstallerLanguage && BlockCatalog.Create("OcrImage", 0, 0).Value("Language") == "eng+rus" &&
+                invalidInstallerLanguage && elevationStartsCorrectly &&
+                BlockCatalog.Create("OcrImage", 0, 0).Value("Language") == "eng+rus" &&
                 new Uri(TesseractInstaller.InstallerUrl).Scheme == Uri.UriSchemeHttps &&
                 new Uri(TesseractInstaller.InstallerUrl).Host.Equals("github.com", StringComparison.OrdinalIgnoreCase) &&
                 new Uri(TesseractInstaller.ModelBaseUrl).Host.Equals("raw.githubusercontent.com", StringComparison.OrdinalIgnoreCase),
-                "OCR rejects command arguments, uses an explicit language plan, and trusts only declared HTTPS sources");
+                "OCR validates language arguments, requests Windows elevation for Tesseract setup, and trusts only declared HTTPS sources");
         }
         finally { Directory.Delete(directory, true); }
     }
@@ -2708,9 +2842,11 @@ internal static class SelfTest
             var content = "BT /F1 12 Tf 50 150 Td (Hello PDF) Tj ET";
             var objects = new[] {
                 "<< /Type /Catalog /Pages 2 0 R >>",
-                "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                "<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 >>",
                 "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
                 "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+                $"<< /Length {content.Length} >>\nstream\n{content}\nendstream",
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /Font << /F1 4 0 R >> >> /Contents 7 0 R >>",
                 $"<< /Length {content.Length} >>\nstream\n{content}\nendstream"
             };
             var text = new System.Text.StringBuilder("%PDF-1.4\n");
@@ -2724,10 +2860,55 @@ internal static class SelfTest
             text.Append($"xref\n0 {offsets.Count}\n0000000000 65535 f \n");
             foreach (var offset in offsets.Skip(1)) text.Append($"{offset:D10} 00000 n \n");
             text.Append($"trailer\n<< /Size {offsets.Count} /Root 1 0 R >>\nstartxref\n{startXref}\n%%EOF\n");
-            File.WriteAllText(pdf, text.ToString(), System.Text.Encoding.ASCII);
-            Assert(PdfTextTools.Execute(pdf, "Количество страниц", 1) == "1" &&
+            var pdfBytes = System.Text.Encoding.ASCII.GetBytes(text.ToString());
+            File.WriteAllBytes(pdf, pdfBytes);
+            Assert(PdfTextTools.Execute(pdf, "Количество страниц", 1) == "2" &&
                 PdfTextTools.Execute(pdf, "Текст страницы", 1).Contains("Hello PDF", StringComparison.Ordinal),
-                "PDF page count and text extraction from real PDF bytes");
+                "two-page PDF count and text extraction from real PDF bytes");
+            var renderedPage = PdfOcrTools.RenderPage(pdfBytes, 0);
+            Assert(renderedPage.Length > 1000 && renderedPage.AsSpan(0, 8).SequenceEqual(
+                    new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }),
+                "PDF OCR renders an entire PDF page to a PNG for scanned and vector content");
+            var localTesseract = Environment.GetEnvironmentVariable("KLIKER_TEST_TESSERACT_PATH");
+            if (string.IsNullOrWhiteSpace(localTesseract))
+                localTesseract = File.Exists(TesseractInstaller.Executable) ? TesseractInstaller.Executable :
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                        "KLIKER Blocks", "Tesseract-OCR", "tesseract.exe");
+            if (File.Exists(localTesseract))
+            {
+                var recognized = PdfOcrTools.ReadAsync(pdf, 1, "eng", localTesseract,
+                    30000, CancellationToken.None).GetAwaiter().GetResult();
+                Assert(recognized.Contains("Hello", StringComparison.OrdinalIgnoreCase),
+                    "PDF page rendering and local Tesseract OCR return page text");
+                var allPages = PdfOcrTools.ReadAsync(pdf, 0, "eng", localTesseract,
+                    30000, CancellationToken.None).GetAwaiter().GetResult();
+                Assert(allPages.Contains("\f", StringComparison.Ordinal) &&
+                    allPages.Split("Hello", StringSplitOptions.None).Length >= 3,
+                    "PDF OCR processes all selected pages and separates page text");
+                using var renderedStream = new MemoryStream(renderedPage);
+                using var renderedBitmap = Image.FromStream(renderedStream);
+                var gif = Path.Combine(directory, "page.gif");
+                renderedBitmap.Save(gif, ImageFormat.Gif);
+                var webp = Path.Combine(directory, "page.webp");
+                using (var skBitmap = SKBitmap.Decode(renderedPage))
+                using (var encodedWebp = skBitmap.Encode(SKEncodedImageFormat.Webp, 90))
+                    File.WriteAllBytes(webp, encodedWebp.ToArray());
+                var gifText = OcrTools.ReadAsync(gif, "eng", localTesseract,
+                    30000, CancellationToken.None).GetAwaiter().GetResult();
+                var webpText = OcrTools.ReadAsync(webp, "eng", localTesseract,
+                    30000, CancellationToken.None).GetAwaiter().GetResult();
+                Assert(gifText.Contains("Hello", StringComparison.OrdinalIgnoreCase) &&
+                    webpText.Contains("Hello", StringComparison.OrdinalIgnoreCase),
+                    "Tesseract recognizes embedded PDF page text from GIF and WebP images");
+                var userPdf = Environment.GetEnvironmentVariable("KLIKER_TEST_PDF_PATH");
+                if (!string.IsNullOrWhiteSpace(userPdf) && File.Exists(userPdf))
+                {
+                    var userPdfText = PdfOcrTools.ReadAsync(userPdf, 1, "eng+rus", localTesseract,
+                        120000, CancellationToken.None).GetAwaiter().GetResult();
+                    Assert(userPdfText.Length > 0,
+                        "PDF OCR recognizes page one of the locally supplied scanned-PDF sample");
+                }
+            }
         }
         finally { Directory.Delete(directory, true); }
     }
@@ -3088,6 +3269,7 @@ internal static class SelfTest
                 "offline English description covers " + spec.Kind);
         }
         foreach (var title in new[] { "Панель, пауза и трей", "Запуск и остановка", "Визуальные блоки и связи",
+            "Размер и заголовок блока",
             "Демонстрация Что я умею", "Окна и точность демонстрации",
             "Текстовый код Kliker Blocks", "Переменные и массивы", "Журнал и запись в файл",
             "Снимки и образы", "Запись макросов", "Слежение за курсором",
@@ -3680,6 +3862,19 @@ internal static class SelfTest
                     foreach (var nested in Items(child)) yield return nested;
         }
         var controls = Descendants(form).ToList();
+        foreach (var header in controls.OfType<PaletteSectionHeader>())
+        {
+            var group = (FlowLayoutPanel)header.Parent!;
+            var clickHeader = header.Controls[1].GetType().GetMethod("OnClick",
+                BindingFlags.NonPublic | BindingFlags.Instance)!;
+            var initiallyExpanded = group.Height > header.Height + 4;
+            clickHeader.Invoke(header.Controls[1], [EventArgs.Empty]);
+            var firstToggleExpanded = group.Height > header.Height + 4;
+            clickHeader.Invoke(header.Controls[1], [EventArgs.Empty]);
+            var secondToggleExpanded = group.Height > header.Height + 4;
+            Assert(firstToggleExpanded != initiallyExpanded && secondToggleExpanded == initiallyExpanded,
+                "palette section expands and collapses: " + header.Text);
+        }
         var captions = controls.Where(control => control is not (TextBoxBase or ListBox or ComboBox))
             .Select(control => control.Text)
             .Concat(form.MainMenuStrip!.Items.Cast<ToolStripItem>().SelectMany(Items).Select(item => item.Text))

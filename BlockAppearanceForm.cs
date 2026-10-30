@@ -56,6 +56,20 @@ internal sealed class BlockAppearanceForm : Form
             _preview?.Invalidate();
         };
 
+        Label("Ширина блока (196–480)");
+        var blockWidth = Number(196, 480, _appearance.Width, 10);
+        blockWidth.ValueChanged += (_, _) => { _appearance.Width = (int)blockWidth.Value; _preview?.Invalidate(); };
+        controls.Controls.Add(blockWidth);
+        Label("Размер заголовка (7–16)");
+        var titleSize = Number(7, 16, _appearance.TitleFontSize, 1);
+        titleSize.ValueChanged += (_, _) => { _appearance.TitleFontSize = (int)titleSize.Value; _preview?.Invalidate(); };
+        controls.Controls.Add(titleSize);
+        var autoFitTitle = new CheckBox { Text = UiLanguage.T("Автоматически уменьшать заголовок, если он не помещается"),
+            Width = 300, Height = 42, AutoSize = false, Checked = _appearance.AutoFitTitle,
+            Margin = new Padding(0, 5, 0, 8) };
+        autoFitTitle.CheckedChanged += (_, _) => { _appearance.AutoFitTitle = autoFitTitle.Checked; _preview?.Invalidate(); };
+        controls.Controls.Add(autoFitTitle);
+
         var spec = BlockCatalog.Get(node.Kind);
         Label("Заливка блока");
         var fill = ColorButton(_appearance.FillColor.Length == 0 ? spec.Color :
@@ -191,6 +205,9 @@ internal sealed class BlockAppearanceForm : Form
         {
             _appearance = new BlockAppearance();
             shape.SelectedIndex = 0;
+            blockWidth.Value = _appearance.Width;
+            titleSize.Value = _appearance.TitleFontSize;
+            autoFitTitle.Checked = _appearance.AutoFitTitle;
             fillOpacity.Value = 100;
             borderOpacity.Value = 100;
             borderWidth.Value = 1;
@@ -216,7 +233,7 @@ internal sealed class BlockAppearanceForm : Form
         var shape = _appearance.Shape;
         var height = shape is "Square" or "Circle" or "Diamond" ? BlockCatalog.Width :
             54 + 25 * Math.Max(1, BlockCatalog.Get(_node.Kind).Outputs.Length);
-        var bounds = new Rectangle(0, 0, BlockCatalog.Width, height);
+        var bounds = new Rectangle(0, 0, _appearance.Width, height);
         var corner = shape is "Square" or "Circle" or "Diamond" ? 45 : BlockGeometry.DefaultCornerAngle(bounds);
         var outputIndex = _port.SelectedIndex - (_hasInput ? 1 : 0);
         var value = _hasInput && _port.SelectedIndex == 0 ? _appearance.InputAngle ?? 180 + corner :
@@ -317,9 +334,9 @@ internal sealed class BlockAppearancePreview(BlockNode node, Func<BlockAppearanc
 
     private Rectangle PreviewBounds(string shape)
     {
-        var width = Math.Min(BlockCatalog.Width, Math.Max(120, Width - 100));
+        var width = Math.Min(appearance().Width, Math.Max(120, Width - 100));
         var height = shape is "Square" or "Circle" or "Diamond" ? width :
-            (int)Math.Round(width / (double)BlockCatalog.Width *
+            (int)Math.Round(width / (double)appearance().Width *
                 (54 + 25 * Math.Max(1, BlockCatalog.Get(node.Kind).Outputs.Length)));
         return new Rectangle((Width - width) / 2, Math.Max(65, (Height - height) / 2 - 18), width, height);
     }

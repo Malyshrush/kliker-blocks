@@ -201,10 +201,10 @@ public static class BlockCatalog
     public static int Height(BlockNode node) => node.Kind == "Description"
         ? DescriptionGeometry.Bounds(node).Height
         : BlockAppearanceManager.Resolve(node).Shape is "Square" or "Circle" or "Diamond"
-            ? Width : 54 + 25 * Math.Max(1, Get(node.Kind).Outputs.Length);
+            ? BlockAppearanceManager.Resolve(node).Width : 54 + 25 * Math.Max(1, Get(node.Kind).Outputs.Length);
     public static Rectangle Bounds(BlockNode node) => node.Kind == "Description"
         ? DescriptionGeometry.Bounds(node)
-        : new Rectangle(node.X, node.Y, Width, Height(node));
+        : new Rectangle(node.X, node.Y, BlockAppearanceManager.Resolve(node).Width, Height(node));
 
     public static readonly BlockSpec[] All =
     [
@@ -428,10 +428,11 @@ public static class BlockCatalog
         new("Screenshot", "Снимок экрана", "Сохранить PNG-файл", Color.FromArgb(61, 116, 157), ["Далее"],
         [new("Path", "Файл PNG", "screen.png"), new("Left", "Левая граница", "0"),
          new("Top", "Верхняя граница", "0"), new("Right", "Правая граница", "500"), new("Bottom", "Нижняя граница", "500")]),
-        new("OcrImage", "Распознать текст", "Локальный OCR изображения", Color.FromArgb(61, 116, 157), ["Далее"],
-        [new("Path", "Путь к изображению", "screen.png"),
+        new("OcrImage", "Распознать текст", "Локальный OCR изображений и PDF", Color.FromArgb(61, 116, 157), ["Далее"],
+        [new("Path", "Путь к изображению или PDF", "screen.png"),
          new("EnginePath", "Путь к tesseract.exe (пусто = поиск)", ""),
          new("Language", "Код языка OCR (например eng+rus)", "eng+rus"),
+         new("PdfPage", "Страница PDF (номер; 0 = все, не более 20)", "0"),
          new("TimeoutMs", "Таймаут OCR, мс", "30000"),
          new("Result", "Переменная результата", "ocr_text")]),
         new("BufferCapture", "Запомнить экран", "Снимок для повторного анализа, аналог GETSCREEN", Color.FromArgb(61, 116, 157), ["Далее"],

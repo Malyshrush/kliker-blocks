@@ -306,8 +306,9 @@ internal static class BlockExampleCatalog
                 en += " After saving, use Scenario → Resume from checkpoint with the same unchanged graph.";
                 break;
             case "OcrImage":
-                ru += " Перед запуском выберите изображение и установите Tesseract с языком eng; движок не входит в выпуск.";
-                en += " Choose an image and install Tesseract with eng before running; the engine is not bundled.";
+                Set("Path", "scan.pdf"); Set("PdfPage", "0");
+                ru += " Перед запуском выберите сканированный PDF, укажите страницу или 0 для первых 20 страниц и установите Tesseract с языком eng; движок не входит в выпуск.";
+                en += " Choose a scanned PDF, enter a page or 0 for the first 20 pages, and install Tesseract with eng before running; the engine is not bundled.";
                 break;
             case "IniFile": Set("Path", "KlikerBlocks-help-example.ini"); Set("Action", "Записать"); Set("Value", "Kliker Blocks"); break;
             case "DirectoryList": Set("Path", "."); Set("Mask", "*.txt"); break;

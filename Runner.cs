@@ -1046,8 +1046,11 @@ internal sealed class Runner(ProjectModel project, Action<string> log, Action<in
                         enginePath = await _ensureOcr(node.Value("Language"), cancel) ?? throw new InvalidOperationException(
                             UiLanguage.T("Tesseract OCR не установлен. Установите его или укажите путь к tesseract.exe в блоке."));
                     }
-                    var result = await OcrTools.ReadAsync(path, node.Value("Language"), enginePath,
-                        node.Int("TimeoutMs", 30000), cancel);
+                    var result = Path.GetExtension(path).Equals(".pdf", StringComparison.OrdinalIgnoreCase)
+                        ? await PdfOcrTools.ReadAsync(path, node.Int("PdfPage", 0), node.Value("Language"),
+                            enginePath, node.Int("TimeoutMs", 30000), cancel)
+                        : await OcrTools.ReadAsync(path, node.Value("Language"), enginePath,
+                            node.Int("TimeoutMs", 30000), cancel);
                     _variables.Set(node.Value("Result"), result);
                     log(UiLanguage.Format("OCR: распознано {0} символов из {1}", result.Length, path));
                     current = node.Link("Далее");

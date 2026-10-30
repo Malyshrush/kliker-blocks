@@ -1,13 +1,13 @@
+using System.ComponentModel;
 using System.Diagnostics;
 
 namespace KlikerBlocks;
 
 internal static class TesseractInstaller
 {
-    // The Tesseract GitHub release hosts this current Windows build; Tesseract documentation
-    // also identifies UB Mannheim as a source of Windows installers.
+    // UB Mannheim's current Windows installer is attached to the upstream Tesseract release.
     internal const string InstallerUrl =
-        "https://github.com/tesseract-ocr/tesseract/releases/download/5.5.0/tesseract-ocr-w64-setup-5.5.0.20241111.exe";
+        "https://github.com/tesseract-ocr/tesseract/releases/download/5.5.3/tesseract-ocr-w64-setup-5.5.3.20260724.exe";
     internal const string ModelBaseUrl =
         "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/";
     internal static string Root => Path.Combine(Environment.GetFolderPath(
@@ -47,7 +47,7 @@ internal static class TesseractInstaller
                 await DownloadAsync(client, new Uri(InstallerUrl), installer, 250L * 1024 * 1024, progress, cancel);
                 progress.Report(L("Установка Tesseract OCR для текущего пользователя…",
                     "Installing Tesseract OCR for the current user…"));
-                await RunProcessAsync(installer, ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-",
+                await RunInstallerAsync(installer, ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-",
                     "/NOSTARTMENU", "/NOICONS", "/DIR=" + Root], TimeSpan.FromMinutes(15), cancel);
             }
             finally
@@ -111,32 +111,50 @@ internal static class TesseractInstaller
         }
     }
 
-    private static async Task RunProcessAsync(string executable, IReadOnlyList<string> arguments,
+    internal static ProcessStartInfo CreateInstallerStartInfo(string executable, IReadOnlyList<string> arguments)
+    {
+        var info = new ProcessStartInfo(executable)
+        {
+            UseShellExecute = true,
+            Verb = "runas",
+            WindowStyle = ProcessWindowStyle.Hidden
+        };
+        foreach (var argument in arguments) info.ArgumentList.Add(argument);
+        return info;
+    }
+
+    private static async Task RunInstallerAsync(string executable, IReadOnlyList<string> arguments,
         TimeSpan timeout, CancellationToken cancel)
     {
-        var info = new ProcessStartInfo(executable) { UseShellExecute = false, CreateNoWindow = true,
-            RedirectStandardError = true, RedirectStandardOutput = true };
-        foreach (var argument in arguments) info.ArgumentList.Add(argument);
-        using var process = Process.Start(info) ?? throw new InvalidOperationException(L(
-            "Установщик Tesseract не запустился.", "The Tesseract installer did not start."));
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancel);
-        deadline.CancelAfter(timeout);
+        cancel.ThrowIfCancellationRequested();
+        using var deadline = new CancellationTokenSource(timeout);
+        Process process;
         try
         {
-            var errors = process.StandardError.ReadToEndAsync(deadline.Token);
-            var output = process.StandardOutput.ReadToEndAsync(deadline.Token);
+            process = Process.Start(CreateInstallerStartInfo(executable, arguments)) ??
+                throw new InvalidOperationException(L("Установщик Tesseract не запустился.",
+                    "The Tesseract installer did not start."));
+        }
+        catch (Win32Exception error) when (error.NativeErrorCode == 1223)
+        {
+            throw new OperationCanceledException(L(
+                "Запрос Windows на запуск установщика с повышенными правами отменён. Tesseract не установлен.",
+                "The Windows prompt to run the installer with elevated permissions was declined. Tesseract was not installed."),
+                error, cancel);
+        }
+        using (process)
+        try
+        {
             await process.WaitForExitAsync(deadline.Token);
-            var details = await errors;
-            if (details.Length == 0) details = await output;
+            cancel.ThrowIfCancellationRequested();
             if (process.ExitCode != 0)
                 throw new InvalidOperationException(L($"Установщик Tesseract завершился с кодом {process.ExitCode}.",
-                    $"Tesseract installer exited with code {process.ExitCode}.") +
-                    (details.Length == 0 ? "" : " " + details[..Math.Min(600, details.Length)]));
+                    $"Tesseract installer exited with code {process.ExitCode}."));
         }
-        finally
+        catch (OperationCanceledException) when (!cancel.IsCancellationRequested)
         {
-            if (!process.HasExited) try { process.Kill(entireProcessTree: true); }
-                catch (InvalidOperationException) { }
+            throw new TimeoutException(L("Установка Tesseract не завершилась за отведённое время.",
+                "Tesseract setup did not finish before the time limit."));
         }
     }
 }

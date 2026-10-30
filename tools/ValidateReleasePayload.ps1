@@ -1,10 +1,31 @@
-param([string]$Version = '1.2.2')
+﻿param([string]$Version = '1.2.3', [switch]$LocalCandidate)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $root = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 $release = Join-Path $root ('publish-v' + ($Version -replace '\.', ''))
-& (Join-Path $PSScriptRoot 'ValidateVersion.ps1') -Version $Version
-& (Join-Path $PSScriptRoot 'UpdateFeatureInventory.ps1') -Check
+if ($LocalCandidate) {
+    $project = Get-Content -LiteralPath (Join-Path $root 'KLIKER Blocks.csproj') -Raw
+    $installer = Get-Content -LiteralPath (Join-Path $root 'Installer\KlikerBlocks.iss') -Raw
+    $ruHelp = Get-Content -LiteralPath (Join-Path $root 'AppHelp.cs') -Raw
+    $enHelp = Get-Content -LiteralPath (Join-Path $root 'EnglishHelp.cs') -Raw
+    if (-not $project.Contains("<Version>$Version</Version>") -or
+        -not $installer.Contains("#define AppVersion `"$Version`"")) { throw 'Candidate project or installer version mismatch.' }
+    if (-not $ruHelp.Contains('AppIdentity.VersionLabel') -or
+        -not $enHelp.Contains('AppIdentity.VersionLabel')) { throw 'Candidate built-in help is not tied to assembly version.' }
+    $notes = Join-Path $release "RELEASE_NOTES_$Version.md"
+    if (-not (Test-Path -LiteralPath $notes)) { throw 'Candidate bilingual release notes are missing.' }
+    $notesText = Get-Content -LiteralPath $notes -Raw
+    if (-not ($notesText -match '\p{IsCyrillic}') -or -not $notesText.Contains('Local candidate')) {
+        throw 'Candidate release notes must identify the local candidate in Russian and English.'
+    }
+} else {
+    & (Join-Path $PSScriptRoot 'ValidateVersion.ps1') -Version $Version
+}
+if (-not $LocalCandidate) {
+    & (Join-Path $PSScriptRoot 'UpdateFeatureInventory.ps1') -Check
+} else {
+    Write-Output 'Skipping released-feature inventory check for local candidate; run it before publication.'
+}
 function Test-Entry([string]$relative) {
     $name = $relative.Replace('\', '/')
     if ($name -match '(^|/)(computer-capabilities\.json|\.env|appsettings?\.json|LanguageModels|Showcase)(/|$)' -or
@@ -25,19 +46,23 @@ function Test-Entry([string]$relative) {
     throw "Unexpected release path: $name"
 }
 foreach ($arch in @('x64', 'x86')) {
-    $payload = (Resolve-Path -LiteralPath (Join-Path $root "installer-payload-v$($Version -replace '\.', '')-$arch")).Path
+    $setupPath = Join-Path $release "KlikerBlocks-Setup-$Version-$arch.exe"
+    if (-not (Test-Path -LiteralPath $setupPath)) { throw "Setup installer missing: $arch" }
+    $candidateSuffix = if ($LocalCandidate) { 'local-' } else { '' }
+    $payload = (Resolve-Path -LiteralPath (Join-Path $root "installer-payload-v$($Version -replace '\.', '')-$candidateSuffix$arch")).Path
     $files = Get-ChildItem -LiteralPath $payload -File -Recurse
     if (-not ($files.Name -contains 'Kliker.Blocks.exe')) { throw "Executable missing: $arch" }
     foreach ($file in $files) { Test-Entry $file.FullName.Substring($payload.Length + 1) }
     $zipPath = Join-Path $release "KlikerBlocks-Portable-$Version-$arch.zip"
     $zip = [IO.Compression.ZipFile]::OpenRead($zipPath)
     try {
+        $entryFiles = @($zip.Entries | Where-Object { -not $_.FullName.EndsWith('/') })
         foreach ($entry in $zip.Entries) {
             if ($entry.FullName.EndsWith('/')) { continue }
             Test-Entry $entry.FullName
         }
-        if ($zip.Entries.Count -ne $files.Count) {
-            throw "ZIP and payload differ for ${arch}: $($zip.Entries.Count) versus $($files.Count)"
+        if ($entryFiles.Count -ne $files.Count) {
+            throw "ZIP and payload differ for ${arch}: $($entryFiles.Count) files versus $($files.Count)"
         }
     } finally { $zip.Dispose() }
     $exe = Join-Path $payload 'Kliker.Blocks.exe'
