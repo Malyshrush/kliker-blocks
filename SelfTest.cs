@@ -46,6 +46,25 @@ internal static class SelfTest
         Assert(AutostartSettings.CommandFor(@"C:\Program Files\Kliker Blocks\Kliker.Blocks.exe") ==
             "\"C:\\Program Files\\Kliker Blocks\\Kliker.Blocks.exe\" --windows-startup",
             "autostart command quotes executable paths containing spaces");
+        var extractionStart = BlockCatalog.Create("Start", 0, 0);
+        var extraction = BlockCatalog.Create("ExtractText", 200, 0);
+        extraction.Values["Text"] = "Invoice #582";
+        extraction.Values["Pattern"] = @"Invoice\s+#(\d+)";
+        extraction.Values["Group"] = "1";
+        extraction.Values["Result"] = "invoice_id";
+        var extractionLog = BlockCatalog.Create("Log", 400, 0);
+        extractionLog.Values["Text"] = "${invoice_id}";
+        extractionStart.Links["Далее"] = extraction.Id;
+        extraction.Links["Далее"] = extractionLog.Id;
+        var extractedOutput = new List<string>();
+        new Runner(new ProjectModel { Nodes = [extractionStart, extraction, extractionLog] },
+            extractedOutput.Add, (_, _) => { }).RunAsync(CancellationToken.None).GetAwaiter().GetResult();
+        Assert(extractedOutput.Contains("582"), "Extract text stores the selected regular-expression group in a variable");
+        Assert(BlockCatalog.Get("WaitScreenText").Outputs.SequenceEqual(["Найдено", "Таймаут"]) &&
+            BlockCatalog.Get("ExtractText").Fields.Any(field => field.Key == "Pattern") &&
+            AppHelp.For("WaitScreenText").Contains("Tesseract", StringComparison.OrdinalIgnoreCase) &&
+            EnglishHelp.Block("ExtractText")?.Contains("regular expression", StringComparison.OrdinalIgnoreCase) == true,
+            "new OCR and extraction blocks have named exits, settings and bilingual help");
         var shareCode = GraphCodeCodec.Serialize(ProjectModel.CreateSample());
         var share = GraphShareDraft.Build("My graph", "Safe example", shareCode);
         Assert(share.Complete && share.Url.Contains("discussions/new?", StringComparison.Ordinal) &&

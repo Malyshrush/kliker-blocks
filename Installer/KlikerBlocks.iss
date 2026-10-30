@@ -1,4 +1,4 @@
-#define AppVersion "1.2.3"
+#define AppVersion "1.2.4"
 #define AppName "Kliker Blocks"
 #ifndef SmokeTest
   #define SmokeTest "0"
@@ -25,6 +25,8 @@ AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
 AppPublisher=Kliker Blocks
 DefaultDirName={localappdata}\Programs\Kliker Blocks
+; Do not silently reuse an old custom path that may belong to a protected package sandbox.
+UsePreviousAppDir=no
 #if SmokeTest == "1"
 DefaultGroupName=Kliker Blocks Smoke Test
 #else
@@ -32,10 +34,10 @@ DefaultGroupName=Kliker Blocks
 #endif
 DisableProgramGroupPage=yes
 #if SmokeTest == "1"
-  OutputDir=..\obj\install-smoke-v123
+  OutputDir=..\obj\install-smoke-v124
 OutputBaseFilename=KlikerBlocks-Smoke-{#AppVersion}-{#BuildArch}
 #else
-  OutputDir=..\publish-v123
+  OutputDir=..\publish-v124
 OutputBaseFilename=KlikerBlocks-Setup-{#AppVersion}-{#BuildArch}
 #endif
 SetupIconFile=..\Assets\Kliker.ico
@@ -75,7 +77,7 @@ Name: "autostart"; Description: "{cm:Autostart}"; Flags: unchecked
 Name: "taskbartip"; Description: "{cm:TaskbarTip}"; Flags: unchecked
 
 [Files]
-Source: "..\installer-payload-v123-local-{#BuildArch}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\installer-payload-v124-final-{#BuildArch}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 #if SmokeTest == "1"

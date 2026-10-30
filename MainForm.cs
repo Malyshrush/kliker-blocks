@@ -50,6 +50,11 @@ internal sealed class MainForm : Form
     private ToolStripMenuItem? _mouseLayersItem;
     private ToolStripMenuItem? _mouseTrayItem;
     private List<BlockNode> _blockClipboard = [];
+    private readonly Stack<string> _undoGraph = [];
+    private readonly Stack<string> _redoGraph = [];
+    private string _graphCheckpoint = "";
+    private bool _restoringGraphHistory;
+    private DateTime _lastCoalescedGraphEdit = DateTime.MinValue;
     private readonly FlowLayoutPanel _fields = new();
     private CancellationTokenSource? _propertyHelpCancel;
     private readonly ListBox _log = new();
@@ -139,7 +144,10 @@ internal sealed class MainForm : Form
         AddMenuItem(editorMenu, "Переключить блоки / код Kliker Blocks", (_, _) => SwitchEditorView(!_codeViewActive));
         AddMenuItem(editorMenu, "Копировать блоки  Ctrl+C", (_, _) => CopyBlocks());
         AddMenuItem(editorMenu, "Вставить блоки у курсора  Ctrl+V", (_, _) => PasteBlocks());
+        AddMenuItem(editorMenu, "Отменить  Ctrl+Z", (_, _) => UndoGraph());
+        AddMenuItem(editorMenu, "Повторить  Ctrl+Y", (_, _) => RedoGraph());
         AddMenuItem(editorMenu, "Удалить выбранное  Delete", (_, _) => DeleteSelected());
+        AddMenuItem(editorMenu, "Создать свой блок из выделения…", (_, _) => CreateSubroutineFromSelection());
         AddMenuItem(editorMenu, "Открыть редактор в отдельном окне", (_, _) => ShowEditorWindow());
         AddMenuItem(editorMenu, "Увеличить масштаб  Ctrl+колесо", (_, _) => _graph.Zoom *= 1.25f);
         AddMenuItem(editorMenu, "Уменьшить масштаб  Ctrl+колесо", (_, _) => _graph.Zoom /= 1.25f);
@@ -420,7 +428,8 @@ internal sealed class MainForm : Form
         _graph.SelectionChanged += node => ShowProperties(node);
         _graph.SelectionSetChanged += nodes => { if (nodes.Count > 1) ShowGroupProperties(nodes); };
         _graph.LinkSelectionChanged += ShowLinkProperties;
-        _graph.ContentResized += ExpandCanvas;
+        _graphCheckpoint = SerializeGraphHistory();
+        _graph.ContentResized += () => { ExpandCanvas(); RecordGraphChange(); };
         _graph.ZoomChanged += zoom => _status.Text = UiLanguage.Format("Масштаб: {0:P0}", zoom);
         _graph.Message += message => _status.Text = UiLanguage.T(message);
         _editorHost.Controls.Add(_graph);
@@ -494,6 +503,7 @@ internal sealed class MainForm : Form
             if (session.CodeView && SwitchEditorView(true) && session.CodeDirty)
                 _graphCode.Text = session.CodeText;
         }
+        _graphCheckpoint = SerializeGraphHistory();
     }
 
     protected override void OnHandleCreated(EventArgs e)
@@ -707,9 +717,9 @@ internal sealed class MainForm : Form
         "IfExpression" => "Условия «Если» и поиск",
         "IfMoved" or "IfPixel" or "WaitPixel" or "IfKeyDown" or "FindColor" or "FindImage" or "BufferFindColor" or "BufferFindImage" or "IfWindow" => "Условия «Если» и поиск",
         "WatchCursor" or "MoveCursor" or "MoveRelative" or "Click" or "MouseButton" or "Wheel" or "Key" or "KeyState" or "VirtualKey" or "TypeText" or "ClipboardSet" or "InputGroup" => "Мышь и клавиатура",
-        "ClipboardGet" or "TextFile" or "TextFileArray" or "CsvTable" or "ExcelTable" or "PdfText" or "FileQueue" or "Checkpoint" or "IniFile" or "DirectoryList" or "HttpGet" or "HttpPost" or "JsonValue" or
+        "ClipboardGet" or "ExtractText" or "TextFile" or "TextFileArray" or "CsvTable" or "ExcelTable" or "PdfText" or "FileQueue" or "Checkpoint" or "IniFile" or "DirectoryList" or "HttpGet" or "HttpPost" or "JsonValue" or
         "TranslateText" or "DetectLanguage" or "LanguagePair" or "TranslateArray" => "Данные и файлы",
-        "Screenshot" or "OcrImage" or "BufferCapture" or "BufferPixel" or "BufferCount" or "BufferHash" or "BufferReplace" or "BufferScanColor" or "BufferScanImage" or "BufferSave" or "MoveFound" or "ActivateWindow" or "MoveWindow" or "WindowFind" or "WindowInfo" or "WindowAction" or "ElementAtPoint" or "ElementInfo" or "ElementSetText" or "UiWait" or "UiAction" or "MessageSend" or "MessageReceive" => "Экран и окна",
+        "Screenshot" or "OcrImage" or "WaitScreenText" or "BufferCapture" or "BufferPixel" or "BufferCount" or "BufferHash" or "BufferReplace" or "BufferScanColor" or "BufferScanImage" or "BufferSave" or "MoveFound" or "ActivateWindow" or "MoveWindow" or "WindowFind" or "WindowInfo" or "WindowAction" or "ElementAtPoint" or "ElementInfo" or "ElementSetText" or "UiWait" or "UiAction" or "MessageSend" or "MessageReceive" => "Экран и окна",
         _ => "Внешние программы"
     };
 
@@ -1237,6 +1247,130 @@ internal sealed class MainForm : Form
         _graph.Select(block);
         _graph.Invalidate();
         if (_codeViewActive) LoadGraphCode();
+        RecordGraphChange();
+    }
+
+    private void CreateSubroutineFromSelection()
+    {
+        if (_codeViewActive && !TryApplyGraphCode()) return;
+        var selected = _graph.SelectedNodes.Where(node => node.Kind != "Description").ToList();
+        if (selected.Count < 2)
+        {
+            _status.Text = UiLanguage.T("Выберите не менее двух связанных блоков.");
+            return;
+        }
+        if (selected.Any(node => node.Kind is "Start" or "SubStart" or "SubReturn" or "BranchEnd"))
+        {
+            MessageBox.Show(this, UiLanguage.T("Старт, подпрограммы и служебные концы веток нельзя включать в новый блок."),
+                UiLanguage.T("Создать свой блок"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var ids = selected.Select(node => node.Id).ToHashSet();
+        var internalEdges = selected.SelectMany(source => source.Links
+            .Where(link => link.Value is Guid target && ids.Contains(target))
+            .Select(link => (Source: source, Port: link.Key, Target: link.Value!.Value))).ToArray();
+        var entryCandidates = selected.Where(node => !internalEdges.Any(edge => edge.Target == node.Id)).ToArray();
+        if (entryCandidates.Length != 1)
+        {
+            MessageBox.Show(this, UiLanguage.T("Выделение должно образовывать одну группу с единственной точкой входа."),
+                UiLanguage.T("Создать свой блок"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        var reachable = new HashSet<Guid>();
+        var queue = new Queue<Guid>();
+        queue.Enqueue(entryCandidates[0].Id);
+        while (queue.Count > 0)
+        {
+            var id = queue.Dequeue();
+            if (!reachable.Add(id)) continue;
+            foreach (var edge in internalEdges.Where(edge => edge.Source.Id == id)) queue.Enqueue(edge.Target);
+        }
+        if (reachable.Count != selected.Count)
+        {
+            MessageBox.Show(this, UiLanguage.T("Все выбранные блоки должны быть связаны с единственной точкой входа."),
+                UiLanguage.T("Создать свой блок"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        var externalIncoming = _project.Nodes.Where(node => !ids.Contains(node.Id))
+            .SelectMany(source => source.Links.Where(link => link.Value is Guid target && ids.Contains(target))
+                .Select(link => (Source: source, Port: link.Key, Target: link.Value!.Value))).ToArray();
+        var externalOutgoing = selected.SelectMany(source => source.Links
+            .Where(link => link.Value is Guid target && !ids.Contains(target))
+            .Select(link => (Source: source, Port: link.Key, Target: link.Value!.Value))).ToArray();
+        if (externalIncoming.Length > 1 || externalOutgoing.Length > 1 ||
+            externalIncoming.Any(edge => edge.Target != entryCandidates[0].Id))
+        {
+            MessageBox.Show(this, UiLanguage.T("Для преобразования разрешена одна внешняя связь на вход и одна на выход."),
+                UiLanguage.T("Создать свой блок"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        var name = PromptSubroutineName();
+        if (name is null) return;
+        if (_project.Nodes.Any(node => node.Kind == "SubStart" &&
+            string.Equals(node.Value("Name").Trim(), name, StringComparison.OrdinalIgnoreCase)))
+        {
+            MessageBox.Show(this, UiLanguage.T("Подпрограмма с таким именем уже существует."),
+                UiLanguage.T("Создать свой блок"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        var minX = selected.Min(node => node.X);
+        var minY = selected.Min(node => node.Y);
+        var maxX = selected.Max(node => BlockCatalog.Bounds(node).Right);
+        var maxY = selected.Max(node => BlockCatalog.Bounds(node).Bottom);
+        var call = BlockCatalog.Create("CallSub", minX, minY);
+        call.Values["Name"] = name;
+        var definitionX = maxX + 360;
+        var definitionY = minY;
+        var start = BlockCatalog.Create("SubStart", definitionX, definitionY);
+        start.Values["Name"] = name;
+        var dx = definitionX + 230 - minX;
+        var dy = definitionY + 110 - minY;
+        foreach (var node in selected)
+        {
+            node.X += dx;
+            node.Y += dy;
+        }
+        var movedMaxX = selected.Max(node => BlockCatalog.Bounds(node).Right);
+        var movedMaxY = selected.Max(node => BlockCatalog.Bounds(node).Bottom);
+        var returnBlock = BlockCatalog.Create("SubReturn", movedMaxX + 240, movedMaxY + 100);
+        foreach (var node in selected)
+            foreach (var key in node.Links.Keys.ToArray())
+                if (node.Links[key] is not Guid target || !ids.Contains(target)) node.Links[key] = returnBlock.Id;
+        start.Links["Тело"] = entryCandidates[0].Id;
+        if (externalIncoming.Length == 1) externalIncoming[0].Source.Links[externalIncoming[0].Port] = call.Id;
+        if (externalOutgoing.Length == 1) call.Links["Далее"] = externalOutgoing[0].Target;
+        _project.Nodes.Add(call);
+        _project.Nodes.Add(start);
+        _project.Nodes.Add(returnBlock);
+        ExpandCanvas();
+        _graph.Select(call);
+        _graph.Invalidate();
+        if (_codeViewActive) LoadGraphCode();
+        RecordGraphChange();
+        _status.Text = UiLanguage.Format("Создан свой блок «{0}» из {1} блоков.", name, selected.Count);
+    }
+
+    private string? PromptSubroutineName()
+    {
+        using var dialog = new Form { Text = UiLanguage.T("Имя своего блока"), Width = 420, Height = 160,
+            FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent,
+            MinimizeBox = false, MaximizeBox = false };
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12), RowCount = 3, ColumnCount = 1 };
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        layout.Controls.Add(new Label { Text = UiLanguage.T("Название повторно используемого блока"), Dock = DockStyle.Fill }, 0, 0);
+        var input = new TextBox { Dock = DockStyle.Fill, Text = UiLanguage.T("Мой блок") };
+        layout.Controls.Add(input, 0, 1);
+        var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft };
+        var ok = new Button { Text = UiLanguage.T("Создать"), DialogResult = DialogResult.OK, Width = 95 };
+        var cancel = new Button { Text = UiLanguage.T("Отмена"), DialogResult = DialogResult.Cancel, Width = 95 };
+        buttons.Controls.Add(ok); buttons.Controls.Add(cancel); layout.Controls.Add(buttons, 0, 2);
+        dialog.Controls.Add(layout); dialog.AcceptButton = ok; dialog.CancelButton = cancel;
+        return dialog.ShowDialog(this) == DialogResult.OK && !string.IsNullOrWhiteSpace(input.Text)
+            ? input.Text.Trim() : null;
     }
 
     private void ConfigureLanguages()
@@ -1305,6 +1439,7 @@ internal sealed class MainForm : Form
             candidate.Nodes = nodes;
             if (!CheckAsciiNames(candidate)) return false;
             _project.Nodes = nodes;
+            ResetGraphHistory();
             _graph.Project = _project;
             _graph.Select(null);
             ExpandCanvas();
@@ -1368,12 +1503,81 @@ internal sealed class MainForm : Form
     {
         if (_graphCode.ContainsFocus) return;
         if (_fields.Controls.Cast<Control>().Any(control => control.Focused && control is TextBoxBase or ComboBox)) return;
-        if (e.Control && !e.Alt && !e.Shift && e.KeyCode == Keys.C) CopyBlocks();
+        if (e.Control && !e.Alt && !e.Shift && e.KeyCode == Keys.Z) UndoGraph();
+        else if (e.Control && !e.Alt && !e.Shift && e.KeyCode == Keys.Y) RedoGraph();
+        else if (e.Control && !e.Alt && !e.Shift && e.KeyCode == Keys.C) CopyBlocks();
         else if (e.Control && !e.Alt && !e.Shift && e.KeyCode == Keys.V) PasteBlocks();
         else if (e.KeyCode == Keys.Delete) DeleteSelected();
         else return;
         e.Handled = true;
         e.SuppressKeyPress = true;
+    }
+
+    private string SerializeGraphHistory() => JsonSerializer.Serialize(_project.Nodes);
+
+    private void ResetGraphHistory()
+    {
+        _undoGraph.Clear();
+        _redoGraph.Clear();
+        _graphCheckpoint = SerializeGraphHistory();
+        _lastCoalescedGraphEdit = DateTime.MinValue;
+    }
+
+    private void RecordGraphChange(bool coalesce = false)
+    {
+        if (_restoringGraphHistory) return;
+        var current = SerializeGraphHistory();
+        if (current == _graphCheckpoint) return;
+        var now = DateTime.UtcNow;
+        if (coalesce && now - _lastCoalescedGraphEdit < TimeSpan.FromMilliseconds(750))
+        {
+            _graphCheckpoint = current;
+            _lastCoalescedGraphEdit = now;
+            return;
+        }
+        _undoGraph.Push(_graphCheckpoint);
+        if (_undoGraph.Count > 100)
+        {
+            var keep = _undoGraph.Take(100).Reverse().ToArray();
+            _undoGraph.Clear();
+            foreach (var item in keep) _undoGraph.Push(item);
+        }
+        _redoGraph.Clear();
+        _graphCheckpoint = current;
+        _lastCoalescedGraphEdit = coalesce ? now : DateTime.MinValue;
+    }
+
+    private void UndoGraph()
+    {
+        if (_undoGraph.Count == 0) { _status.Text = UiLanguage.T("Нет действий для отмены."); return; }
+        _lastCoalescedGraphEdit = DateTime.MinValue;
+        _redoGraph.Push(SerializeGraphHistory());
+        RestoreGraphHistory(_undoGraph.Pop());
+    }
+
+    private void RedoGraph()
+    {
+        if (_redoGraph.Count == 0) { _status.Text = UiLanguage.T("Нет действий для повтора."); return; }
+        _lastCoalescedGraphEdit = DateTime.MinValue;
+        _undoGraph.Push(SerializeGraphHistory());
+        RestoreGraphHistory(_redoGraph.Pop());
+    }
+
+    private void RestoreGraphHistory(string snapshot)
+    {
+        try
+        {
+            _restoringGraphHistory = true;
+            _project.Nodes = JsonSerializer.Deserialize<List<BlockNode>>(snapshot) ?? [];
+            _graphCheckpoint = SerializeGraphHistory();
+            _lastCoalescedGraphEdit = DateTime.MinValue;
+            _graph.Select(null);
+            _graph.Invalidate();
+            if (_codeViewActive) LoadGraphCode();
+            ExpandCanvas();
+            _status.Text = UiLanguage.T("Изменение графа восстановлено.");
+        }
+        finally { _restoringGraphHistory = false; }
     }
 
     private void CopyBlocks()
@@ -1396,6 +1600,7 @@ internal sealed class MainForm : Form
         _graph.Invalidate();
         if (_codeViewActive) LoadGraphCode();
         AppendLog($"Вставлено блоков: {nodes.Count}. Внутренние связи сохранены.");
+        RecordGraphChange();
     }
 
     private void ShowEditorWindow()
@@ -1475,6 +1680,7 @@ internal sealed class MainForm : Form
         {
             if (_codeViewActive) LoadGraphCode();
             AppendLog("Выбранная связь удалена");
+            RecordGraphChange();
             return;
         }
         var selected = _graph.SelectedNodes;
@@ -1486,6 +1692,7 @@ internal sealed class MainForm : Form
         foreach (var node in _project.Nodes)
             foreach (var key in node.Links.Keys.ToArray())
                 if (node.Links[key] is Guid target && ids.Contains(target)) node.Links[key] = null;
+        RecordGraphChange();
         _graph.Select(null);
         _graph.Invalidate();
         if (_codeViewActive) LoadGraphCode();
@@ -1519,6 +1726,7 @@ internal sealed class MainForm : Form
         void SaveAppearance()
         {
             source.LinkStyles[port] = appearance.Copy();
+            RecordGraphChange(coalesce: true);
             _graph.Invalidate();
         }
         _fields.Controls.Add(new Label { Text = UiLanguage.T("Оформление связи"), Width = 250,
@@ -1590,6 +1798,7 @@ internal sealed class MainForm : Form
         reset.Click += (_, _) =>
         {
             source.LinkStyles.Remove(port);
+            RecordGraphChange();
             _graph.Invalidate();
             ShowLinkProperties(source, port, target);
         };
@@ -1626,12 +1835,12 @@ internal sealed class MainForm : Form
         }
         var trace = new CheckBox { Text = UiLanguage.T("Записать действия в журнал"), Width = 250,
             Height = 28, Checked = node.LogActions, Margin = new Padding(0, 4, 0, 8) };
-        trace.CheckedChanged += (_, _) => { node.LogActions = trace.Checked; _graph.Invalidate(); };
+        trace.CheckedChanged += (_, _) => { node.LogActions = trace.Checked; RecordGraphChange(); _graph.Invalidate(); };
         _fields.Controls.Add(trace);
         var breakpoint = new CheckBox { Text = UiLanguage.T("Точка останова перед блоком"),
             Width = 250, Height = 28, Checked = node.Breakpoint };
         breakpoint.CheckedChanged += (_, _) =>
-        { node.Breakpoint = breakpoint.Checked; _graph.Invalidate(); };
+        { node.Breakpoint = breakpoint.Checked; RecordGraphChange(); _graph.Invalidate(); };
         _fields.Controls.Add(breakpoint);
         if (node.Kind != "Description")
         {
@@ -1642,19 +1851,19 @@ internal sealed class MainForm : Form
             errorChoice.SelectedIndex = Math.Max(0, Array.IndexOf(errorPolicies,
                 node.Value("__ErrorPolicy", BlockErrorPolicy.Stop)));
             errorChoice.SelectedIndexChanged += (_, _) =>
-                node.Values["__ErrorPolicy"] = errorPolicies[errorChoice.SelectedIndex];
+            { node.Values["__ErrorPolicy"] = errorPolicies[errorChoice.SelectedIndex]; RecordGraphChange(); };
             _fields.Controls.Add(errorChoice);
             _fields.Controls.Add(new Label { Text = UiLanguage.T("Повторов перед решением (0–10)"), Width = 250, Height = 23 });
             var errorRetries = new NumericUpDown { Width = 250, Minimum = 0, Maximum = 10,
                 Value = Math.Clamp(node.Int("__ErrorRetries", 0), 0, 10) };
             errorRetries.ValueChanged += (_, _) =>
-                node.Values["__ErrorRetries"] = ((int)errorRetries.Value).ToString();
+            { node.Values["__ErrorRetries"] = ((int)errorRetries.Value).ToString(); RecordGraphChange(coalesce: true); };
             _fields.Controls.Add(errorRetries);
             _fields.Controls.Add(new Label { Text = UiLanguage.T("Задержка повтора, мс (0–60000)"), Width = 250, Height = 23 });
             var errorDelay = new NumericUpDown { Width = 250, Minimum = 0, Maximum = 60000,
                 Value = Math.Clamp(node.Int("__ErrorDelayMs", 0), 0, 60000) };
             errorDelay.ValueChanged += (_, _) =>
-                node.Values["__ErrorDelayMs"] = ((int)errorDelay.Value).ToString();
+            { node.Values["__ErrorDelayMs"] = ((int)errorDelay.Value).ToString(); RecordGraphChange(coalesce: true); };
             _fields.Controls.Add(errorDelay);
             _fields.Controls.Add(new Label { Text = UiLanguage.T("Цель перехода при ошибке"), Width = 250, Height = 23 });
             var targets = _project.Nodes.Where(item => item.Id != node.Id && item.Kind != "Description").ToArray();
@@ -1665,8 +1874,8 @@ internal sealed class MainForm : Form
             errorTarget.SelectedIndex = Math.Max(0, Array.FindIndex(targets,
                 item => item.Id.ToString() == node.Value("__ErrorTarget")) + 1);
             errorTarget.SelectedIndexChanged += (_, _) =>
-                node.Values["__ErrorTarget"] = errorTarget.SelectedIndex == 0 ? "" :
-                    targets[errorTarget.SelectedIndex - 1].Id.ToString();
+            { node.Values["__ErrorTarget"] = errorTarget.SelectedIndex == 0 ? "" :
+                    targets[errorTarget.SelectedIndex - 1].Id.ToString(); RecordGraphChange(); };
             _fields.Controls.Add(errorTarget);
         }
         var appearanceButton = new Button { Text = UiLanguage.T("Оформление блока…"),
@@ -1687,6 +1896,7 @@ internal sealed class MainForm : Form
                 node.Appearance = null;
             }
             else node.Appearance = editor.Appearance;
+            RecordGraphChange();
             ExpandCanvas();
             ShowProperties(node);
             _graph.Invalidate();
@@ -1710,6 +1920,7 @@ internal sealed class MainForm : Form
                 {
                     node.Values[field.Key] = decimal.ToInt32(number.Value).ToString();
                     if (field.Key != "OpacityPercent") ExpandCanvas();
+                    RecordGraphChange(coalesce: true);
                     _graph.Invalidate();
                 };
                 _fields.Controls.Add(number);
@@ -1728,6 +1939,7 @@ internal sealed class MainForm : Form
                 combo.SelectedIndexChanged += (_, _) =>
                 {
                     node.Values[field.Key] = (combo.SelectedItem as LocalizedOption)?.Value ?? field.Default;
+                    RecordGraphChange();
                     _graph.Invalidate();
                 };
                 _fields.Controls.Add(combo);
@@ -1754,6 +1966,7 @@ internal sealed class MainForm : Form
                 box.TextChanged += (_, _) =>
                 {
                     node.Values[field.Key] = multiLine ? MultilineFieldText.ForStorage(box.Text) : box.Text;
+                    RecordGraphChange(coalesce: true);
                     if (VariableNameRules.IsIdentifierField(node.Kind, field) && field.Key != "Reference")
                         box.BackColor = box.Text.Length == 0 || VariableNameRules.IsAscii(box.Text)
                             ? Color.White : Color.MistyRose;
@@ -1943,7 +2156,7 @@ internal sealed class MainForm : Form
                 var target = node.Link(output);
                 var button = new Button { Width = 250, Height = 32,
                     Text = UiLanguage.T(output) + ": " + UiLanguage.T(target == null ? "свободно" : "отключить") };
-                button.Click += (_, _) => { node.Links[output] = null; ShowProperties(node); _graph.Invalidate(); };
+                button.Click += (_, _) => { node.Links[output] = null; RecordGraphChange(); ShowProperties(node); _graph.Invalidate(); };
                 _fields.Controls.Add(button);
             }
         }
@@ -2486,6 +2699,7 @@ internal sealed class MainForm : Form
         if (_indicatorHotkeyRegistered) NativeMouse.ReleaseUserHotKey(Handle, 6);
         _indicatorHotkeyRegistered = false;
         _project = ProjectModel.CreateSample();
+        ResetGraphHistory();
         ApplyMouseMappings();
         RefreshRunModeMenu();
         RegisterIndicatorHotkey();
@@ -2513,6 +2727,7 @@ internal sealed class MainForm : Form
         {
             var project = ProjectCompatibility.Read(path);
             _project = project;
+            ResetGraphHistory();
             _project.VariableNamesAsciiOnly = true;
             ApplyMouseMappings();
             RefreshRunModeMenu();
@@ -2756,6 +2971,7 @@ internal sealed class GraphCanvas : Control
         _selectedLink = null;
         SelectionChanged?.Invoke(null);
         Invalidate();
+        ContentResized?.Invoke();
         return true;
     }
 
@@ -3087,6 +3303,7 @@ internal sealed class GraphCanvas : Control
             {
                 source.Links[pending.Port] = hit.Id;
                 Message?.Invoke($"Соединено: {BlockCatalog.Get(source.Kind).Title} → {spec.Title}");
+                ContentResized?.Invoke();
             }
             _pending = null;
             Select(hit);
@@ -3103,6 +3320,7 @@ internal sealed class GraphCanvas : Control
             {
                 hit.Links[spec.Outputs[i]] = null;
                 Message?.Invoke("Связь удалена");
+                ContentResized?.Invoke();
             }
             else
             {

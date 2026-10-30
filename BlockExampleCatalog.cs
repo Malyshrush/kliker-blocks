@@ -46,6 +46,14 @@ internal static class BlockExampleCatalog
             Link(start, "Далее", seed);
             before = seed;
         }
+        else if (kind == "ExtractText")
+        {
+            var seed = Add("SetVariable", 1);
+            seed.Values["Name"] = "source_text";
+            seed.Values["Value"] = "Invoice #582";
+            Link(start, "Далее", seed);
+            before = seed;
+        }
         else if (kind is "BufferPixel" or "BufferCount" or "BufferHash" or "BufferReplace" or
             "BufferFindColor" or "BufferFindImage" or "BufferScanColor" or "BufferScanImage" or "BufferSave")
         {
@@ -239,6 +247,13 @@ internal static class BlockExampleCatalog
                 Link(body, "Далее", ret);
                 break;
             }
+            case "WaitScreenText":
+                Link(featured, "Найдено", Say("Текст появился", "Text appeared", 4));
+                Link(featured, "Таймаут", Say("Текст не найден за 1 секунду", "Text was not found within 1 second", 4, 1));
+                break;
+            case "ExtractText":
+                Link(featured, "Далее", Say("Номер счёта: ${invoice_id}", "Invoice number: ${invoice_id}", 4));
+                break;
             case "BranchEnd":
             {
                 var repeat = Add("Repeat", 1);
@@ -309,6 +324,17 @@ internal static class BlockExampleCatalog
                 Set("Path", "scan.pdf"); Set("PdfPage", "0");
                 ru += " Перед запуском выберите сканированный PDF, укажите страницу или 0 для первых 20 страниц и установите Tesseract с языком eng; движок не входит в выпуск.";
                 en += " Choose a scanned PDF, enter a page or 0 for the first 20 pages, and install Tesseract with eng before running; the engine is not bundled.";
+                break;
+            case "WaitScreenText":
+                Set("Text", "Готово"); Set("TimeoutMs", "1000"); Set("IntervalMs", "500");
+                ru += " Установите Tesseract и нужный язык; блок распознаёт экран локально. В примере ожидание ограничено одной секундой.";
+                en += " Install Tesseract and the required language; the block recognizes screen text locally. This example waits for one second.";
+                break;
+            case "ExtractText":
+                Set("Text", "${source_text}"); Set("Pattern", @"Invoice\s+#(\d+)");
+                Set("Group", "1"); Set("Result", "invoice_id");
+                ru += " Из исходной строки Invoice #582 будет извлечено значение 582.";
+                en += " The value 582 is extracted from the sample string Invoice #582.";
                 break;
             case "IniFile": Set("Path", "KlikerBlocks-help-example.ini"); Set("Action", "Записать"); Set("Value", "Kliker Blocks"); break;
             case "DirectoryList": Set("Path", "."); Set("Mask", "*.txt"); break;

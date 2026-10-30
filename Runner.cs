@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Collections.Concurrent;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace KlikerBlocks;
 
@@ -631,6 +632,19 @@ internal sealed class Runner(ProjectModel project, Action<string> log, Action<in
                     current = node.Link("Далее");
                     break;
                 }
+                case "ExtractText":
+                {
+                    var input = _variables.Expand(node.Value("Text"));
+                    var pattern = _variables.Expand(node.Value("Pattern"));
+                    if (!int.TryParse(node.Value("Group", "1"), out var groupIndex) || groupIndex < 0)
+                        throw new InvalidOperationException("Номер группы должен быть целым числом от 0.");
+                    var match = Regex.Match(input, pattern, RegexOptions.CultureInvariant, TimeSpan.FromSeconds(2));
+                    var result = match.Success && groupIndex < match.Groups.Count ? match.Groups[groupIndex].Value : "";
+                    _variables.Set(node.Value("Result"), result);
+                    log(match.Success ? $"Извлечён фрагмент текста ({result.Length} символов)." : "Совпадение текста не найдено.");
+                    current = node.Link("Далее");
+                    break;
+                }
                 case "TextFile":
                 {
                     var path = ExternalTools.ResolvePath(node.Value("Path"), _baseDirectory);
@@ -1054,6 +1068,59 @@ internal sealed class Runner(ProjectModel project, Action<string> log, Action<in
                     _variables.Set(node.Value("Result"), result);
                     log(UiLanguage.Format("OCR: распознано {0} символов из {1}", result.Length, path));
                     current = node.Link("Далее");
+                    break;
+                }
+                case "WaitScreenText":
+                {
+                    var target = _variables.Expand(node.Value("Text"));
+                    if (string.IsNullOrWhiteSpace(target)) throw new InvalidOperationException("Введите искомый текст.");
+                    var timeoutMs = node.Int("TimeoutMs", 10000);
+                    var intervalMs = Math.Clamp(node.Int("IntervalMs", 500), 100, 10000);
+                    if (timeoutMs is < 1000 or > 600000) throw new InvalidOperationException("Таймаут ожидания текста: 1000–600000 мс.");
+                    var engine = node.Value("Engine");
+                    try
+                    {
+                        var available = await OcrTools.ListLanguagesAsync(engine, cancel);
+                        var required = TesseractInstaller.ParseLanguages(node.Value("Language", "eng+rus"));
+                        var missing = required.Where(language => !available.Contains(language)).ToArray();
+                        if (missing.Length > 0) throw new FileNotFoundException(
+                            UiLanguage.T("Не установлены языковые данные Tesseract: ") + string.Join(", ", missing));
+                    }
+                    catch (FileNotFoundException) when (_ensureOcr is not null)
+                    { engine = await _ensureOcr(node.Value("Language"), cancel) ?? throw new InvalidOperationException(
+                        UiLanguage.T("Не удалось подготовить Tesseract OCR для распознавания текста на экране.")); }
+                    var area = node.Value("AreaMode") == "Весь экран" ? SystemInformation.VirtualScreen :
+                        new Rectangle(node.Int("Left"), node.Int("Top"), Math.Clamp(node.Int("Width", 800), 1, 10000), Math.Clamp(node.Int("Height", 600), 1, 10000));
+                    if (area.Width <= 0 || area.Height <= 0 || Rectangle.Intersect(area, SystemInformation.VirtualScreen) != area)
+                        throw new InvalidOperationException(UiLanguage.T("Область OCR должна находиться внутри виртуального экрана."));
+                    var imagePath = Path.Combine(Path.GetTempPath(), "kliker-screen-ocr-" + Guid.NewGuid().ToString("N") + ".png");
+                    var found = false;
+                    var text = "";
+                    try
+                    {
+                        var until = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+                        do
+                        {
+                            cancel.ThrowIfCancellationRequested();
+                            var remainingMs = (int)Math.Floor((until - DateTime.UtcNow).TotalMilliseconds);
+                            if (remainingMs < 1000) break;
+                            ScreenTools.SavePng(area, imagePath);
+                            try
+                            {
+                                text = await OcrTools.ReadAsync(imagePath, node.Value("Language", "eng+rus"), engine,
+                                    Math.Min(30000, remainingMs), cancel);
+                            }
+                            catch (TimeoutException) when (DateTime.UtcNow >= until) { break; }
+                            _variables.Set(node.Value("Result", "screen_text"), text);
+                            found = text.Contains(target, StringComparison.CurrentCultureIgnoreCase);
+                            if (found) break;
+                            remainingMs = (int)Math.Floor((until - DateTime.UtcNow).TotalMilliseconds);
+                            if (remainingMs > 0) await Task.Delay(Math.Min(intervalMs, remainingMs), cancel);
+                        } while (DateTime.UtcNow < until);
+                    }
+                    finally { try { File.Delete(imagePath); } catch { } }
+                    if (found) { log("Искомый текст появился на экране."); current = node.Link("Найдено"); }
+                    else { log("Таймаут: искомый текст не появился на экране."); current = node.Link("Таймаут"); }
                     break;
                 }
                 case "BufferCapture":
