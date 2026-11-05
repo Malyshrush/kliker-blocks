@@ -47,6 +47,115 @@ internal static class SelfTest
             "\"C:\\Program Files\\Kliker Blocks\\Kliker.Blocks.exe\" --windows-startup",
             "autostart command quotes executable paths containing spaces");
         var extractionStart = BlockCatalog.Create("Start", 0, 0);
+        var extraStart = BlockCatalog.Create("Start", 100, 0);
+        var deletableBlock = BlockCatalog.Create("Log", 200, 0);
+        var deleteNodes = new List<BlockNode> { extractionStart, extraStart, deletableBlock };
+        Assert(GraphDeletionPolicy.Removable(deleteNodes, [extraStart]).SequenceEqual([extraStart]) &&
+            GraphDeletionPolicy.Removable(deleteNodes, [extractionStart, extraStart, deletableBlock]).SequenceEqual([extraStart, deletableBlock]) &&
+            GraphDeletionPolicy.Removable([extractionStart], [extractionStart]).Count == 0 &&
+            GraphDeletionPolicy.Removable(deleteNodes, [extractionStart, deletableBlock]).SequenceEqual([extractionStart, deletableBlock]),
+            "deletion preserves one start while allowing extra starts and other selected blocks");
+        var menuStart = BlockCatalog.Create("Start", 0, 0);
+        var menuLog = BlockCatalog.Create("Log", 200, 0);
+        menuLog.Values["Text"] = "${selected_text}";
+        menuStart.Links["Далее"] = menuLog.Id;
+        var menuOutput = new List<string>();
+        new Runner(new ProjectModel { Nodes = [menuStart, menuLog], VariableNamesAsciiOnly = true },
+            menuOutput.Add, (_, _) => { }).RunAsync(CancellationToken.None,
+                initialValues: new Dictionary<string, string> { ["selected_text"] = "Пример текста" }).GetAwaiter().GetResult();
+        Assert(menuOutput.Contains("Пример текста"), "screen menu graph receives selected text as a variable");
+        var noteStart = BlockCatalog.Create("Start", 0, 0);
+        var noteBlock = BlockCatalog.Create("Note", 200, 0);
+        noteBlock.Values["TextMode"] = "Заменить";
+        noteBlock.Values["Text"] = "${selected_text}";
+        noteStart.Links["Далее"] = noteBlock.Id;
+        NoteRequest? receivedNote = null;
+        new Runner(new ProjectModel { Nodes = [noteStart, noteBlock], VariableNamesAsciiOnly = true },
+            _ => { }, (_, _) => { }, noteAction: (request, _) => { receivedNote = request; return Task.FromResult("note1"); })
+            .RunAsync(CancellationToken.None, initialValues: new Dictionary<string, string> { ["selected_text"] = "Пример" }).GetAwaiter().GetResult();
+        Assert(receivedNote?.Id == "note1" && receivedNote.Text == "Пример" && receivedNote.TextMode == "Заменить",
+            "note block expands input variables and sends the chosen action to the note manager");
+        var menuFolder = Path.Combine(Path.GetTempPath(), "kliker-screen-menu-test-" + Guid.NewGuid().ToString("N"));
+        string? firstSaved = null, secondSaved = null, savedNote = null, sectionNote = null, sampleImage = null;
+        try
+        {
+            firstSaved = ScreenTextMenu.SaveText(menuFolder, "Пример\ntext");
+            secondSaved = ScreenTextMenu.SaveText(menuFolder, "second");
+            Assert(firstSaved != secondSaved && File.ReadAllText(firstSaved) == "Пример\ntext" && File.ReadAllText(secondSaved) == "second",
+                "screen menu saves Unicode text without overwriting another file");
+            savedNote = Path.Combine(menuFolder, "test.klnote");
+            var previousContext = SynchronizationContext.Current;
+            try
+            {
+                using (var note = new ScreenNoteForm("Первая заметка")) note.SaveTo(savedNote);
+                using (var note = ScreenNoteForm.LoadFrom(savedNote))
+                {
+                    Assert(note.GetNoteText() == "Первая заметка", "saved note restores its Unicode text");
+                    note.SetContents("Добавить", "!", "Не менять", ""); note.SaveTo(savedNote);
+                }
+                using (var note = ScreenNoteForm.LoadFrom(savedNote)) Assert(note.GetNoteText() == "Первая заметка!", "saved note edits persist");
+                var editRequest = new NoteRequest("Изменить файл", "", savedNote, "Добавить", " граф", "Не менять", "", null, null, null, null);
+                ScreenNoteManager.Execute(editRequest);
+                Assert(ScreenNoteManager.Execute(editRequest with { Action = "Прочитать файл" }) == "Первая заметка! граф",
+                    "note block operations edit and read a saved note without opening its window");
+                sampleImage = Path.Combine(menuFolder, "sample.png");
+                using (var image = new Bitmap(20, 20)) image.Save(sampleImage, ImageFormat.Png);
+                sectionNote = Path.Combine(menuFolder, "sections.klnote");
+                using (var note = new ScreenNoteForm("Text"))
+                {
+                    note.SetContents("Не менять", "", "Из файла", sampleImage);
+                    var noteSplit = note.Controls.OfType<SplitContainer>().Single();
+                    var editor = noteSplit.Panel1.Controls.OfType<RichTextBox>().Single();
+                    editor.Select(0, 4); editor.SelectionColor = Color.Red;
+                    var picture = noteSplit.Panel2.Controls.OfType<NotePictureBox>().Single();
+                    var keyHandler = typeof(ScreenNoteForm).GetMethod("ProcessCmdKey", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                    object[] plusArgs = [new Message(), Keys.Control | Keys.Shift | Keys.Oemplus];
+                    Assert((bool)keyHandler.Invoke(note, plusArgs)! && (bool)keyHandler.Invoke(note, plusArgs)! && Math.Abs(picture.ViewZoom - 1.44f) < 0.001f,
+                        "repeated Ctrl+plus increases the note image zoom each time");
+                    object[] minusArgs = [new Message(), Keys.Control | Keys.OemMinus];
+                    Assert((bool)keyHandler.Invoke(note, minusArgs)! && picture.ViewZoom < 1.44f,
+                        "Ctrl+minus decreases the note image zoom");
+                    var down = typeof(NotePictureBox).GetMethod("OnMouseDown", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                    var move = typeof(NotePictureBox).GetMethod("OnMouseMove", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                    var up = typeof(NotePictureBox).GetMethod("OnMouseUp", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                    down.Invoke(picture, [new MouseEventArgs(MouseButtons.Left, 1, 10, 10, 0)]);
+                    move.Invoke(picture, [new MouseEventArgs(MouseButtons.Left, 0, 30, 40, 0)]);
+                    up.Invoke(picture, [new MouseEventArgs(MouseButtons.Left, 1, 30, 40, 0)]);
+                    Assert(picture.ViewOffset == new PointF(20f, 30f), "dragging changes the note image position");
+                    picture.SetView(1.5f, 20f, -10f);
+                    note.SaveTo(sectionNote);
+                }
+                using (var note = ScreenNoteForm.LoadFrom(sectionNote))
+                {
+                    var noteSplit = note.Controls.OfType<SplitContainer>().Single();
+                    var editor = noteSplit.Panel1.Controls.OfType<RichTextBox>().Single();
+                    editor.Select(0, 4);
+                    var picture = noteSplit.Panel2.Controls.OfType<NotePictureBox>().Single();
+                    Assert(editor.SelectionColor.ToArgb() == Color.Red.ToArgb() && picture.ViewZoom == 1.5f && picture.ViewOffset == new PointF(20f, -10f),
+                        "note text formatting and image view survive saving and reopening");
+                    Assert(note.HasTextSection() && note.HasImageSection() && !note.PreservesImageAspect(), "note fills the image section by default");
+                    note.SetImagePreserveAspect(true);
+                    note.RemoveTextSection(); note.SaveTo(sectionNote);
+                }
+                using (var note = ScreenNoteForm.LoadFrom(sectionNote))
+                {
+                    Assert(!note.HasTextSection() && note.HasImageSection() && note.PreservesImageAspect() && note.GetNoteText() == "", "removed text section and image fit setting persist after reopening");
+                    note.SetContents("Заменить", "Restored", "Убрать", ""); note.SaveTo(sectionNote);
+                }
+                using (var note = ScreenNoteForm.LoadFrom(sectionNote))
+                    Assert(note.HasTextSection() && !note.HasImageSection() && note.GetNoteText() == "Restored", "text section can be restored and image removed");
+            }
+            finally { SynchronizationContext.SetSynchronizationContext(previousContext); }
+        }
+        finally
+        {
+            if (firstSaved is not null && File.Exists(firstSaved)) File.Delete(firstSaved);
+            if (secondSaved is not null && File.Exists(secondSaved)) File.Delete(secondSaved);
+            if (savedNote is not null && File.Exists(savedNote)) File.Delete(savedNote);
+            if (sectionNote is not null && File.Exists(sectionNote)) File.Delete(sectionNote);
+            if (sampleImage is not null && File.Exists(sampleImage)) File.Delete(sampleImage);
+            if (Directory.Exists(menuFolder)) Directory.Delete(menuFolder);
+        }
         var extraction = BlockCatalog.Create("ExtractText", 200, 0);
         extraction.Values["Text"] = "Invoice #582";
         extraction.Values["Pattern"] = @"Invoice\s+#(\d+)";
@@ -211,10 +320,16 @@ internal static class SelfTest
         TestShowcaseGraph();
         Console.WriteLine("Showcase graph tests passed.");
         TestCsvTable();
-        TestDocumentTables();
+        Console.WriteLine("CSV tests passed.");
+        // PDF OCR uses async continuations; do not block the WinForms synchronization context.
+        Task.Run(TestDocumentTables).GetAwaiter().GetResult();
+        Console.WriteLine("Document tests passed.");
         TestFileQueue();
+        Console.WriteLine("File queue tests passed.");
         TestCheckpoint();
+        Console.WriteLine("Checkpoint tests passed.");
         TestOcrValidation();
+        Console.WriteLine("OCR validation tests passed.");
         TestScenarioPlayback();
         Console.WriteLine("Scenario tests passed.");
         using (var statusIcon = TrayStatusIcon.Create(SystemIcons.Application, Color.LimeGreen))

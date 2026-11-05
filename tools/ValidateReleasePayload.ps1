@@ -48,7 +48,17 @@ function Test-Entry([string]$relative) {
 foreach ($arch in @('x64', 'x86')) {
     $setupPath = Join-Path $release "KlikerBlocks-Setup-$Version-$arch.exe"
     if (-not (Test-Path -LiteralPath $setupPath)) { throw "Setup installer missing: $arch" }
-    $payload = (Resolve-Path -LiteralPath (Join-Path $root "installer-payload-v$($Version -replace '\.', '')-final-$arch")).Path
+    $payloadPath = Join-Path $root "installer-payload-v$($Version -replace '\.', '')-notes-$arch"
+    if (-not (Test-Path -LiteralPath $payloadPath -PathType Container)) {
+        $payloadPath = Join-Path $root "installer-payload-v$($Version -replace '\.', '')-release-$arch"
+    }
+    if (-not (Test-Path -LiteralPath $payloadPath -PathType Container)) {
+        $payloadPath = Join-Path $root "installer-payload-v$($Version -replace '\.', '')-candidate-$arch"
+    }
+    if (-not (Test-Path -LiteralPath $payloadPath -PathType Container)) {
+        $payloadPath = Join-Path $root "installer-payload-v$($Version -replace '\.', '')-final-$arch"
+    }
+    $payload = (Resolve-Path -LiteralPath $payloadPath).Path
     $files = Get-ChildItem -LiteralPath $payload -File -Recurse
     if (-not ($files.Name -contains 'Kliker.Blocks.exe')) { throw "Executable missing: $arch" }
     foreach ($file in $files) { Test-Entry $file.FullName.Substring($payload.Length + 1) }

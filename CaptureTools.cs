@@ -10,6 +10,9 @@ internal sealed class AppSettings
     public string ScreenshotHotkey { get; set; } = "Ctrl+Alt+P";
     public string ScreenshotFolder { get; set; } = "Screenshots";
     public string ScreenshotPrefix { get; set; } = "capture";
+    public string ScreenMenuHotkey { get; set; } = "Ctrl+Alt+T";
+    public string ScreenMenuFolder { get; set; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Kliker Blocks", "Тексты");
+    public List<ScreenMenuGraph> ScreenMenuGraphs { get; set; } = [];
     public string UiLanguageCode { get; set; } = "en";
     public bool InitialLanguageChosen { get; set; }
     public bool JournalWordWrap { get; set; } = true;
@@ -86,6 +89,9 @@ internal sealed class HotkeySettingsForm : Form
             ScreenshotHotkey = settings.ScreenshotHotkey,
             ScreenshotFolder = settings.ScreenshotFolder,
             ScreenshotPrefix = settings.ScreenshotPrefix,
+            ScreenMenuHotkey = settings.ScreenMenuHotkey,
+            ScreenMenuFolder = settings.ScreenMenuFolder,
+            ScreenMenuGraphs = settings.ScreenMenuGraphs,
             UiLanguageCode = settings.UiLanguageCode,
             InitialLanguageChosen = settings.InitialLanguageChosen,
             JournalWordWrap = settings.JournalWordWrap,
@@ -151,7 +157,7 @@ internal sealed class CaptureOverlay : Form
     public string RequestedName => _name.Text.Trim();
     public Rectangle SelectedArea { get; private set; }
 
-    public CaptureOverlay()
+    public CaptureOverlay(bool rectangleOnly = false)
     {
         Text = UiLanguage.T("Kliker Blocks — выбор области");
         FormBorderStyle = FormBorderStyle.None;
@@ -165,22 +171,22 @@ internal sealed class CaptureOverlay : Form
         Opacity = 0.68;
         Cursor = Cursors.Cross;
         Controls.Add(_bar);
-        foreach (var shape in new[] { "Прямоугольник", "Квадрат", "Круг" })
+        foreach (var shape in rectangleOnly ? new[] { "Прямоугольник" } : new[] { "Прямоугольник", "Квадрат", "Круг" })
         {
             var button = new Button { Text = shape, AutoSize = true, Height = 34, Margin = new Padding(6, 8, 0, 0) };
             button.Click += (_, _) => { Shape = shape; Invalidate(); };
             _bar.Controls.Add(button);
         }
         _name.Margin = new Padding(18, 12, 0, 0);
-        _bar.Controls.Add(_name);
+        if (!rectangleOnly) _bar.Controls.Add(_name);
         _bar.Controls.Add(new Label { Text = "Перетащите область • Esc — отмена", AutoSize = true, ForeColor = Color.White, Margin = new Padding(16, 17, 0, 0) });
         KeyDown += (_, e) =>
         {
             if (e.KeyCode == Keys.Escape) { DialogResult = DialogResult.Cancel; Close(); }
             if (_name.Focused) return;
             if (e.KeyCode == Keys.R) Shape = "Прямоугольник";
-            if (e.KeyCode == Keys.S) Shape = "Квадрат";
-            if (e.KeyCode == Keys.C) Shape = "Круг";
+            if (!rectangleOnly && e.KeyCode == Keys.S) Shape = "Квадрат";
+            if (!rectangleOnly && e.KeyCode == Keys.C) Shape = "Круг";
             Invalidate();
         };
     }

@@ -51,6 +51,16 @@ internal static class Program
             Application.Run(new SupportForm());
             return;
         }
+        if (args.Contains("--note-preview"))
+        {
+            ApplicationConfiguration.Initialize();
+            UiLanguage.Configure("ru");
+            var sampleImage = Path.Combine(Environment.CurrentDirectory, "screenshots", "editor-ru.png");
+            using var note = new ScreenNoteForm("Тестовый текст заметки", File.Exists(sampleImage) ? sampleImage : "");
+            note.NoteId = "preview"; note.RefreshTitle();
+            Application.Run(note);
+            return;
+        }
         if (args.Contains("--language-preview") || args.Contains("--ui-preview"))
         {
             NativeMouse.EnableDpiAwareness();

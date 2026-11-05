@@ -57,6 +57,7 @@ internal sealed class AboutForm : Form
         var result = new StringBuilder();
         result.AppendLine(copy.Introduction).AppendLine();
         foreach (var line in copy.Capabilities) result.AppendLine("• " + line);
+        result.AppendLine("• " + (UiLanguage.Code == "ru" ? "Экранное меню: текст, речь, снимки, OCR, заметки и пользовательские графы. В заметках доступны форматирование текста и масштабирование изображений. Индикатор перетаскивается мышью." : "Screen menu: text, speech, screenshots, OCR, notes and user graphs. Notes support text formatting and image zoom. Drag the scenario indicator with the mouse."));
         result.AppendLine().AppendLine(copy.BlocksHeading + " (" + BlockCatalog.All.Length + ")");
         foreach (var group in BlockCatalog.All.GroupBy(spec => MainForm.CategoryFor(spec.Kind))
                      .OrderBy(group => MainForm.CategoryOrder(group.Key)))
@@ -70,6 +71,9 @@ internal sealed class AboutForm : Form
 
     private static string BuildReleases(Copy copy) =>
         "v" + AppIdentity.VersionLabel + "\r\n" + (UiLanguage.Code == "ru"
+            ? "Добавлены экранное меню для выделенного текста, снимков и пользовательских графов; заметки с текстом и изображением и блок управления заметками. Индикатор можно перетаскивать, лишние блоки «Старт» — удалять."
+            : "Added a screen menu for selected text, screenshots and user graphs; notes with text and images and a Note control block. The indicator can be dragged and extra Start blocks deleted.") +
+        "\r\n\r\nv1.2.4\r\n" + (UiLanguage.Code == "ru"
             ? "Добавлены отмена и повтор изменений графа (Ctrl+Z/Ctrl+Y), локальное ожидание появления текста на экране и извлечение фрагментов текста регулярным выражением. Выделенную связанную группу можно преобразовать в вызываемый собственный блок-подпрограмму; исходное тело остаётся в графе отдельно. Каталог функций автоматически сверяется с сайтом и GitHub перед публикацией."
             : "Added graph undo/redo (Ctrl+Z/Ctrl+Y), local waiting for screen text and regular-expression text extraction. A selected connected group can become a callable custom subroutine block; its body remains separately visible in the graph. The feature catalog is automatically checked against the website and GitHub before publication.") +
         "\r\n\r\nv1.2.3\r\n" + (UiLanguage.Code == "ru"

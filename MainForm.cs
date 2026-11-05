@@ -88,6 +88,9 @@ internal sealed class MainForm : Form
     private string? _file;
     private bool _hotkeysRegistered;
     private bool _coordinateHotkeyRegistered;
+    private bool _screenMenuHotkeyRegistered;
+    private bool _screenMenuBusy;
+    private bool _screenGraphActive;
     private bool _screenshotHotkeyRegistered;
     private bool _indicatorHotkeyRegistered;
     private bool _indicatorHiddenByHotkey;
@@ -158,6 +161,8 @@ internal sealed class MainForm : Form
         AddMenuItem(captureMenu, "Снимок области…", async (_, _) => await CaptureScreenAsync());
         AddMenuItem(captureMenu, "Библиотека…", (_, _) => ShowLibrary());
         AddMenuItem(captureMenu, "Горячие клавиши…", (_, _) => ConfigureHotkeys());
+        AddMenuItem(captureMenu, UiLanguage.Code == "ru" ? "Экранное меню: настройки…" : "Screen menu settings…", (_, _) => ConfigureScreenMenu());
+        AddMenuItem(captureMenu, UiLanguage.Code == "ru" ? "Открыть заметку…" : "Open note…", (_, _) => ScreenNoteForm.OpenNote());
         var macroMenu = new ToolStripMenuItem("Макрос");
         AddMenuItem(macroMenu, "Начать запись…", async (_, _) => await StartRecordingAsync());
         AddMenuItem(macroMenu, "Остановить запись  Ctrl+Alt+F10", (_, _) => StopRecording());
@@ -516,6 +521,7 @@ internal sealed class MainForm : Form
         var mappingToggle = NativeMouse.RegisterUserHotKey(Handle, 7, 0x0003, 0x77); // Ctrl+Alt+F8
         _hotkeysRegistered = run || stop || recordStop;
         RegisterCustomHotkeys();
+        RegisterScreenMenuHotkey();
         RegisterIndicatorHotkey();
         ApplyMouseMappings();
         _stopHotkeyFallback = new StopHotkeyFallback(() => UI(StopScenario), () => UI(StopRecordingHotkey));
@@ -536,10 +542,12 @@ internal sealed class MainForm : Form
     {
         if (_hotkeysRegistered) NativeMouse.ReleaseHotKeys(Handle);
         if (_coordinateHotkeyRegistered) NativeMouse.ReleaseUserHotKey(Handle, 3);
+        if (_screenMenuHotkeyRegistered) NativeMouse.ReleaseUserHotKey(Handle, 8);
         if (_screenshotHotkeyRegistered) NativeMouse.ReleaseUserHotKey(Handle, 4);
         if (_indicatorHotkeyRegistered) NativeMouse.ReleaseUserHotKey(Handle, 6);
         _hotkeysRegistered = false;
         _coordinateHotkeyRegistered = false;
+        _screenMenuHotkeyRegistered = false;
         _screenshotHotkeyRegistered = false;
         _indicatorHotkeyRegistered = false;
         _stopHotkeyFallback?.Dispose();
@@ -567,6 +575,7 @@ internal sealed class MainForm : Form
             if (m.WParam.ToInt32() == 5) StopRecordingHotkey();
             if (m.WParam.ToInt32() == 6) ToggleIndicatorVisibility();
             if (m.WParam.ToInt32() == 7) ToggleMouseMappings();
+            if (m.WParam.ToInt32() == 8 && !_screenMenuBusy) _ = OpenScreenMenuAsync();
             return;
         }
         base.WndProc(ref m);
@@ -719,7 +728,7 @@ internal sealed class MainForm : Form
         "WatchCursor" or "MoveCursor" or "MoveRelative" or "Click" or "MouseButton" or "Wheel" or "Key" or "KeyState" or "VirtualKey" or "TypeText" or "ClipboardSet" or "InputGroup" => "Мышь и клавиатура",
         "ClipboardGet" or "ExtractText" or "TextFile" or "TextFileArray" or "CsvTable" or "ExcelTable" or "PdfText" or "FileQueue" or "Checkpoint" or "IniFile" or "DirectoryList" or "HttpGet" or "HttpPost" or "JsonValue" or
         "TranslateText" or "DetectLanguage" or "LanguagePair" or "TranslateArray" => "Данные и файлы",
-        "Screenshot" or "OcrImage" or "WaitScreenText" or "BufferCapture" or "BufferPixel" or "BufferCount" or "BufferHash" or "BufferReplace" or "BufferScanColor" or "BufferScanImage" or "BufferSave" or "MoveFound" or "ActivateWindow" or "MoveWindow" or "WindowFind" or "WindowInfo" or "WindowAction" or "ElementAtPoint" or "ElementInfo" or "ElementSetText" or "UiWait" or "UiAction" or "MessageSend" or "MessageReceive" => "Экран и окна",
+        "Screenshot" or "Note" or "OcrImage" or "WaitScreenText" or "BufferCapture" or "BufferPixel" or "BufferCount" or "BufferHash" or "BufferReplace" or "BufferScanColor" or "BufferScanImage" or "BufferSave" or "MoveFound" or "ActivateWindow" or "MoveWindow" or "WindowFind" or "WindowInfo" or "WindowAction" or "ElementAtPoint" or "ElementInfo" or "ElementSetText" or "UiWait" or "UiAction" or "MessageSend" or "MessageReceive" => "Экран и окна",
         _ => "Внешние программы"
     };
 
@@ -914,6 +923,66 @@ internal sealed class MainForm : Form
             else _indicator.Show();
         }
         AppendLog($"Индикатор {(_indicatorHiddenByHotkey ? "скрыт" : "показан")} клавишей {_project.IndicatorToggleHotkey}; сценарий продолжает работать.");
+    }
+
+    private void RegisterScreenMenuHotkey()
+    {
+        try
+        {
+            var key = HotkeyParser.Parse(_settings.ScreenMenuHotkey);
+            _screenMenuHotkeyRegistered = NativeMouse.RegisterUserHotKey(Handle, 8, key.Modifiers, key.Key);
+            if (!_screenMenuHotkeyRegistered) BeginInvoke(() => AppendLog(UiLanguage.Code == "ru" ? "Горячая клавиша экранного меню занята. Измените её в настройках." : "Screen menu hotkey is in use. Change it in settings."));
+        }
+        catch (Exception error) { BeginInvoke(() => AppendLog(error.Message)); }
+    }
+
+    private async Task OpenScreenMenuAsync()
+    {
+        _screenMenuBusy = true;
+        try { await ScreenTextMenu.ShowAsync(_settings, RunScreenMenuGraphAsync, EnsureOcrAsync); }
+        finally { _screenMenuBusy = false; }
+    }
+
+    private async Task RunScreenMenuGraphAsync(string path, string text, string imagePath, CancellationToken cancel)
+    {
+        if (_cancel is not null || _screenGraphActive) throw new InvalidOperationException(UiLanguage.Code == "ru" ? "Сначала остановите текущий сценарий." : "Stop the current scenario first.");
+        _screenGraphActive = true;
+        try
+        {
+        var project = ProjectCompatibility.Read(path);
+        var runner = new Runner(project, AppendRunnerLog, (_, _) => { }, Path.GetDirectoryName(path),
+            inputDialog: (message, value, delay, window, token) => OnUiAsync(() => DialogTools.Input(this, message, value, delay, token, options: window)),
+            choiceDialog: (message, buttons, icon, window, token) => OnUiAsync(() => DialogTools.Choice(this, message, buttons, icon, token, options: window)),
+            radioDialog: (message, options, window, token) => OnUiAsync(() => DialogTools.Radio(this, message, options, token, window: window)),
+            messageInbox: _messageInbox, selfHandle: Handle, argosPythonPath: _settings.ArgosPythonPath, ensureOcr: EnsureOcrAsync,
+            noteAction: (request, token) => { token.ThrowIfCancellationRequested(); return OnUiAsync(() => ScreenNoteManager.Execute(request)); });
+        await runner.RunAsync(cancel, initialValues: new Dictionary<string, string> { ["selected_text"] = text, ["screenshot_path"] = imagePath, ["output_folder"] = _settings.ScreenMenuFolder });
+        }
+        finally { _screenGraphActive = false; }
+    }
+
+    private void ConfigureScreenMenu()
+    {
+        using var dialog = new ScreenTextSettingsForm(_settings);
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        var oldKey = _settings.ScreenMenuHotkey;
+        var oldFolder = _settings.ScreenMenuFolder;
+        var oldGraphs = _settings.ScreenMenuGraphs;
+        if (_screenMenuHotkeyRegistered) NativeMouse.ReleaseUserHotKey(Handle, 8);
+        _screenMenuHotkeyRegistered = false;
+        _settings.ScreenMenuHotkey = dialog.Hotkey;
+        _settings.ScreenMenuFolder = dialog.Folder;
+        _settings.ScreenMenuGraphs = dialog.Graphs;
+        RegisterScreenMenuHotkey();
+        if (!_screenMenuHotkeyRegistered)
+        {
+            _settings.ScreenMenuHotkey = oldKey; _settings.ScreenMenuFolder = oldFolder; _settings.ScreenMenuGraphs = oldGraphs;
+            RegisterScreenMenuHotkey();
+            MessageBox.Show(UiLanguage.Code == "ru" ? "Клавиша занята. Прежние настройки восстановлены." : "The hotkey is in use. Previous settings were restored.");
+            return;
+        }
+        try { _settings.Save(); }
+        catch (Exception error) { MessageBox.Show(error.Message); }
     }
 
     private void ConfigureHotkeys()
@@ -1685,7 +1754,7 @@ internal sealed class MainForm : Form
         }
         var selected = _graph.SelectedNodes;
         if (selected.Count == 0) return;
-        var removable = selected.Where(node => node.Kind != "Start").ToList();
+        var removable = GraphDeletionPolicy.Removable(_project.Nodes, selected);
         if (removable.Count == 0) { MessageBox.Show("Блок «Старт» нужен для запуска сценария."); return; }
         var ids = removable.Select(node => node.Id).ToHashSet();
         _project.Nodes.RemoveAll(node => ids.Contains(node.Id));
@@ -2191,12 +2260,15 @@ internal sealed class MainForm : Form
         var pointWasRegistered = _coordinateHotkeyRegistered;
         var screenshotWasRegistered = _screenshotHotkeyRegistered;
         var indicatorWasRegistered = _indicatorHotkeyRegistered;
+        var screenMenuWasRegistered = _screenMenuHotkeyRegistered;
         if (pointWasRegistered) NativeMouse.ReleaseUserHotKey(Handle, 3);
         if (screenshotWasRegistered) NativeMouse.ReleaseUserHotKey(Handle, 4);
         if (indicatorWasRegistered) NativeMouse.ReleaseUserHotKey(Handle, 6);
+        if (screenMenuWasRegistered) NativeMouse.ReleaseUserHotKey(Handle, 8);
         _coordinateHotkeyRegistered = false;
         _screenshotHotkeyRegistered = false;
         _indicatorHotkeyRegistered = false;
+        _screenMenuHotkeyRegistered = false;
         try
         {
             using var dialog = new KeyCaptureForm(allowMouse);
@@ -2219,9 +2291,11 @@ internal sealed class MainForm : Form
                 var key = HotkeyParser.Parse(_project.IndicatorToggleHotkey);
                 _indicatorHotkeyRegistered = NativeMouse.RegisterUserHotKey(Handle, 6, key.Modifiers, key.Key);
             }
+            if (screenMenuWasRegistered) RegisterScreenMenuHotkey();
             if ((pointWasRegistered && !_coordinateHotkeyRegistered) ||
                 (screenshotWasRegistered && !_screenshotHotkeyRegistered) ||
-                (indicatorWasRegistered && !_indicatorHotkeyRegistered))
+                (indicatorWasRegistered && !_indicatorHotkeyRegistered) ||
+                (screenMenuWasRegistered && !_screenMenuHotkeyRegistered))
                 AppendLog("Не удалось восстановить часть горячих клавиш после назначения. Проверьте их в настройках.");
         }
     }
@@ -2239,6 +2313,7 @@ internal sealed class MainForm : Form
 
     private async Task RunProject(CheckpointState? resume = null)
     {
+        if (_screenGraphActive) { MessageBox.Show(UiLanguage.Code == "ru" ? "Сначала остановите граф экранного меню." : "Stop the screen menu graph first."); return; }
         if (_cancel != null) return;
         if (_showcaseWindow?.IsRunning == true)
         {
@@ -2359,7 +2434,8 @@ internal sealed class MainForm : Form
                 showcaseStep: showcaseSession is null ? null :
                     (action, variables, cancel) => showcaseSession.ExecuteAsync(action, variables, cancel),
                 debugState: (id, variables, paused) => UI(() => UpdateDebugState(id, variables, paused)),
-                ensureOcr: EnsureOcrAsync);
+                ensureOcr: EnsureOcrAsync,
+                noteAction: (request, token) => { token.ThrowIfCancellationRequested(); return OnUiAsync(() => ScreenNoteManager.Execute(request)); });
             await _runner.RunAsync(_cancel.Token, resume);
             AppendLog("Сценарий завершён");
         }
@@ -2411,6 +2487,13 @@ internal sealed class MainForm : Form
     {
         if (_indicator is not null) return;
         _indicator = new ScenarioIndicatorForm();
+        _indicator.PositionChangedByUser += point =>
+        {
+            _project.UseCustomIndicatorPosition = true;
+            _project.IndicatorX = point.X;
+            _project.IndicatorY = point.Y;
+            AppendLog(UiLanguage.Code == "ru" ? "Положение индикатора изменено. Сохраните проект." : "Indicator position changed. Save the project.");
+        };
         _indicator.SetAppearance(_project.IndicatorAppearance, _file == null ? AppContext.BaseDirectory : Path.GetDirectoryName(_file));
         _indicator.SetPlacement(_project);
         RefreshIndicator();

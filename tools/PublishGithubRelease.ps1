@@ -65,4 +65,12 @@ foreach ($name in $names) {
     if ($asset.state -ne 'uploaded') { throw "Upload not complete: $name ($($asset.state))" }
     Write-Output "Uploaded $name ($($asset.size) bytes)"
 }
-Write-Output "Release: $($release.html_url)"
+$verified = Invoke-RestMethod -Uri "$base/releases/$($release.id)" -Headers $headers -Method Get
+foreach ($name in $names) {
+    $asset = $verified.assets | Where-Object { $_.name -eq $name -and $_.state -eq 'uploaded' } | Select-Object -First 1
+    $localSize = (Get-Item -LiteralPath (Join-Path $releaseDir $name)).Length
+    if (-not $asset -or $asset.size -ne $localSize) { throw "Release asset missing or size mismatch: $name" }
+}
+$body = @{ prerelease = $false; draft = $false } | ConvertTo-Json
+$verified = Invoke-RestMethod -Uri "$base/releases/$($release.id)" -Headers $headers -Method Patch -Body $body -ContentType 'application/json; charset=utf-8'
+Write-Output "Release published: $($verified.html_url)"

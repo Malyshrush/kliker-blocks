@@ -289,6 +289,9 @@ internal static class BlockExampleCatalog
         void Set(string key, string value) { if (node.Values.ContainsKey(key)) node.Values[key] = value; }
         switch (kind)
         {
+            case "Note": Set("TextMode", "Заменить"); Set("Text", "Hello from Kliker Blocks");
+                ru += " Пример создаёт окно заметки note1 с текстом; его можно свернуть, сохранить или закрыть.";
+                en += " The example creates note1 with text; you can minimize, save or close it."; break;
             case "WatchCursor": Set("DurationMs", "2000"); Set("ActivationMode", "Сразу"); Set("RequiredHold", "Нет"); break;
             case "MoveRelative": Set("DeltaX", "15"); Set("DeltaY", "0"); break;
             case "ClipboardSet": Set("Text", "Kliker Blocks example"); break;

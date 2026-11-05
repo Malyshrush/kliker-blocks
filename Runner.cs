@@ -24,7 +24,8 @@ internal sealed class Runner(ProjectModel project, Action<string> log, Action<in
     Func<string, VariableStore, CancellationToken, Task>? showcaseStep = null,
     int nestedDepth = 0,
     Action<Guid, IReadOnlyDictionary<string, string>, bool>? debugState = null,
-    Func<string, CancellationToken, Task<string?>>? ensureOcr = null)
+    Func<string, CancellationToken, Task<string?>>? ensureOcr = null,
+    Func<NoteRequest, CancellationToken, Task<string>>? noteAction = null)
 {
     private sealed class SubReturnSignal : Exception { }
     private readonly Dictionary<Guid, BlockNode> _nodes = project.Nodes.ToDictionary(n => n.Id);
@@ -239,9 +240,12 @@ internal sealed class Runner(ProjectModel project, Action<string> log, Action<in
         conditionStatus?.Invoke(node.Id, active);
     }
 
-    public Task RunAsync(CancellationToken cancel, CheckpointState? resume = null)
+    public Task RunAsync(CancellationToken cancel, CheckpointState? resume = null,
+        IReadOnlyDictionary<string, string>? initialValues = null)
     {
         _ = SpeedTime(0, _playbackSpeed);
+        if (initialValues is not null)
+            foreach (var (name, value) in initialValues) _variables.Set(name, value);
         _variables.Set("_hwnd_self", (selfHandle?.ToInt64() ?? 0).ToString(System.Globalization.CultureInfo.InvariantCulture));
         var starts = _nodes.Values.Where(n => n.Kind == "Start").ToArray();
         if (starts.Length != 1) throw new InvalidOperationException("В проекте должен быть ровно один блок «Старт».");
@@ -1043,9 +1047,32 @@ internal sealed class Runner(ProjectModel project, Action<string> log, Action<in
                     current = node.Link("Далее");
                     break;
                 }
+                case "Note":
+                {
+                    if (noteAction is null) throw new InvalidOperationException(UiLanguage.Code == "ru" ? "Заметки доступны из окна Kliker Blocks." : "Notes are available from the Kliker Blocks window.");
+                    int? OptionalInt(string field)
+                    {
+                        var value = _variables.Expand(node.Value(field)).Trim();
+                        if (value.Length == 0) return null;
+                        if (!int.TryParse(value, out var number)) throw new ArgumentException((UiLanguage.Code == "ru" ? "Некорректное число в поле: " : "Invalid number in field: ") + field);
+                        return number;
+                    }
+                    string ResolveOptional(string field)
+                    {
+                        var value = _variables.Expand(node.Value(field)).Trim();
+                        return value.Length == 0 ? "" : ExternalTools.ResolvePath(value, _baseDirectory);
+                    }
+                    var request = new NoteRequest(node.Value("Action"), _variables.Expand(node.Value("Id")), ResolveOptional("Path"),
+                        node.Value("TextMode"), _variables.Expand(node.Value("Text")), node.Value("ImageMode"), ResolveOptional("ImagePath"),
+                        OptionalInt("X"), OptionalInt("Y"), OptionalInt("Width"), OptionalInt("Height"));
+                    var value = await noteAction(request, cancel);
+                    _variables.Set(node.Value("Result"), value);
+                    current = node.Link("Далее");
+                    break;
+                }
                 case "OcrImage":
                 {
-                    var path = ExternalTools.ResolvePath(node.Value("Path"), _baseDirectory);
+                    var path = ExternalTools.ResolvePath(_variables.Expand(node.Value("Path")), _baseDirectory);
                     var enginePath = node.Value("EnginePath");
                     try
                     {
@@ -1439,7 +1466,7 @@ internal sealed class Runner(ProjectModel project, Action<string> log, Action<in
                             keyState, relativeMove, conditionStatus, null, _clearLog, _showLog, playSound, beep,
                             inputDialog, choiceDialog, messageInbox, selfHandle, radioDialog, hintPopup,
                             translate, argosPythonPath, translateLocal, speakText, showcaseStep, nestedDepth + 1,
-                            debugState, _ensureOcr);
+                            debugState, _ensureOcr, noteAction);
                         foreach (var (name, value) in ParseModulePairs(node.Value("Inputs"), "входы"))
                             child._variables.Set(name, value);
                         _childRunner = child;

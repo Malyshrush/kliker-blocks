@@ -27,6 +27,8 @@ internal sealed class ScenarioIndicatorForm : Form
     private string _detail = "";
     private Rectangle _automaticArea;
     private bool _fixedPosition;
+    private Point? _dragOffset;
+    public event Action<Point>? PositionChangedByUser;
     private int _state; // 0: scenario running, 1: activation armed, 2: activation off
     private Bitmap? _backgroundImage;
     private Bitmap? _runningImage;
@@ -55,7 +57,7 @@ internal sealed class ScenarioIndicatorForm : Form
         get
         {
             var parameters = base.CreateParams;
-            parameters.ExStyle |= 0x08000000 | 0x00000020 | 0x00000080 | 0x00080000;
+            parameters.ExStyle |= 0x08000000 | 0x00000080 | 0x00080000;
             return parameters;
         }
     }
@@ -145,6 +147,32 @@ internal sealed class ScenarioIndicatorForm : Form
     }
 
     private void PositionAt(Rectangle area) => Location = new Point(area.Right - Width - 18, area.Top + 18);
+
+    protected override void OnMouseDown(MouseEventArgs e)
+    {
+        base.OnMouseDown(e);
+        if (e.Button != MouseButtons.Left) return;
+        _dragOffset = new Point(Cursor.Position.X - Left, Cursor.Position.Y - Top);
+        Capture = true;
+    }
+
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        base.OnMouseMove(e);
+        if (_dragOffset is not Point offset || !Capture) return;
+        _fixedPosition = true;
+        Location = new Point(Cursor.Position.X - offset.X, Cursor.Position.Y - offset.Y);
+        Redraw();
+    }
+
+    protected override void OnMouseUp(MouseEventArgs e)
+    {
+        base.OnMouseUp(e);
+        if (e.Button != MouseButtons.Left || _dragOffset is null) return;
+        _dragOffset = null;
+        Capture = false;
+        if (_fixedPosition) PositionChangedByUser?.Invoke(Location);
+    }
 
     protected override void OnSizeChanged(EventArgs e)
     {
