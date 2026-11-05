@@ -41,18 +41,27 @@ foreach ($name in $names) {
     if ($existing) { throw "GitHub has an incomplete asset named $name ($($existing.state)); remove it before retrying." }
     $path = Join-Path $releaseDir $name
     $uri = "$uploadBase`?name=$([Uri]::EscapeDataString($name))"
-    $responsePath = Join-Path $project ("obj\github-upload-response-$PID.json")
-    $curlArgs = @(
-        '--retry', '4', '--retry-all-errors', '--retry-delay', '8',
-        '--connect-timeout', '30', '--max-time', '3600', '-sS', '-X', 'POST',
-        '-H', "Authorization: Bearer $token", '-H', 'Accept: application/vnd.github+json',
-        '-H', 'Content-Type: application/octet-stream', '-H', 'User-Agent: KlikerBlocks-release-publisher',
-        '-H', 'Expect:', '--data-binary', "@$path", '-o', $responsePath, '-w', '%{http_code}', $uri
-    )
-    $httpStatus = & curl.exe @curlArgs
-    if ($LASTEXITCODE -ne 0) { throw "GitHub upload failed for $name (curl exit $LASTEXITCODE, HTTP $httpStatus)." }
-    $asset = Get-Content -LiteralPath $responsePath -Raw | ConvertFrom-Json
-    Remove-Item -LiteralPath $responsePath -Force
+    $client = [System.Net.Http.HttpClient]::new()
+    $client.Timeout = [TimeSpan]::FromHours(1)
+    $client.DefaultRequestHeaders.Authorization = [System.Net.Http.Headers.AuthenticationHeaderValue]::new('Bearer', $token)
+    $null = $client.DefaultRequestHeaders.Accept.Add([System.Net.Http.Headers.MediaTypeWithQualityHeaderValue]::new('application/vnd.github+json'))
+    $null = $client.DefaultRequestHeaders.UserAgent.ParseAdd('KlikerBlocks-release-publisher')
+    $stream = [IO.File]::OpenRead($path)
+    $content = [System.Net.Http.StreamContent]::new($stream)
+    $content.Headers.ContentType = [System.Net.Http.Headers.MediaTypeHeaderValue]::new('application/octet-stream')
+    try {
+        $response = $client.PostAsync($uri, $content).GetAwaiter().GetResult()
+        $responseBody = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        if (-not $response.IsSuccessStatusCode) {
+            throw "GitHub upload failed for $name (HTTP $([int]$response.StatusCode))."
+        }
+        $asset = $responseBody | ConvertFrom-Json
+    }
+    finally {
+        $content.Dispose()
+        $stream.Dispose()
+        $client.Dispose()
+    }
     if ($asset.state -ne 'uploaded') { throw "Upload not complete: $name ($($asset.state))" }
     Write-Output "Uploaded $name ($($asset.size) bytes)"
 }
