@@ -296,6 +296,7 @@ internal static class SelfTest
         TestDialogWindowOptions();
         TestScreenMenuCapture();
         TestGraphLibrary();
+        TestBlockPropertyTools();
         TestSupportLinks();
         TestLanguagePacksAndNames();
         TestDisplayedBranding();
@@ -3636,6 +3637,56 @@ internal static class SelfTest
         owner.Close();
     }
 
+    private static void TestBlockPropertyTools()
+    {
+        var color = BlockCatalog.Create("BufferPixel", 0, 0);
+        var message = BlockCatalog.Create("Log", 0, 0);
+        message.Values["Text"] = "Pixel: ${COLOR}";
+        var array = BlockCatalog.Create("ArraySet", 0, 0);
+        array.Values["Name"] = "colors";
+        var model = new ProjectModel { Nodes = [color, message, array] };
+        var entries = GraphVariableCatalog.Collect(model);
+        var scalar = entries.Single(item => !item.IsArray && item.Name == "color");
+        Assert(scalar.Usages.Select(use => use.BlockNumber).SequenceEqual([1, 2]) &&
+            GraphVariableCatalog.Insertion(scalar, false) == "${color}" &&
+            GraphVariableCatalog.Insertion(entries.Single(item => item.IsArray), false) == "${colors}[0]",
+            "variable picker discovers default outputs, uses case-insensitive names and formats insertions");
+        color.Values["Result"] = "shade";
+        Assert(GraphVariableCatalog.Collect(model).Any(entry => entry.Name == "shade" &&
+            entry.Usages.Single().BlockNumber == 1), "variable picker reflects graph edits immediately");
+
+        Assert(BlockPathPicker.For(BlockCatalog.Create("DirectoryList", 0, 0), "Path") == BlockPathPicker.Mode.Folder &&
+            BlockPathPicker.For(BlockCatalog.Create("DirectoryList", 0, 0), "Pattern") == BlockPathPicker.Mode.FolderWithMask &&
+            BlockPathPicker.For(BlockCatalog.Create("OcrImage", 0, 0), "Path") == BlockPathPicker.Mode.Open &&
+            BlockPathPicker.For(BlockCatalog.Create("Screenshot", 0, 0), "Path") == BlockPathPicker.Mode.Save &&
+            BlockPathPicker.For(BlockCatalog.Create("JsonValue", 0, 0), "Path") is null,
+            "the path picker distinguishes folders, masks, source and destination files from JSON paths");
+
+        var previousLanguage = UiLanguage.Code;
+        try
+        {
+            using var bitmap = new Bitmap(1, 1);
+            using var graphics = Graphics.FromImage(bitmap);
+            using var format = new StringFormat { Trimming = StringTrimming.EllipsisWord, FormatFlags = StringFormatFlags.LineLimit };
+            foreach (var language in new[] { "ru", "en" })
+            {
+                UiLanguage.Configure(language);
+                foreach (var kind in new[] { "BufferCapture", "OcrImage", "BufferPixel", "SpeakText" })
+                {
+                    var node = BlockCatalog.Create(kind, 0, 0);
+                    var hint = UiLanguage.T(BlockCatalog.Get(kind).Hint);
+                    var bounds = GraphCanvas.HintTextBounds(node, false);
+                    using var font = new Font(SystemFonts.DefaultFont.FontFamily,
+                        GraphCanvas.FitHintFontSize(graphics, hint, SystemFonts.DefaultFont.FontFamily, bounds.Size, format));
+                    graphics.MeasureString(hint, font, bounds.Size, format, out var fitted, out _);
+                    Assert(fitted == hint.Length, "block hint fits completely: " + kind + " (" + language + ")");
+                }
+            }
+        }
+        finally { UiLanguage.Configure(previousLanguage); }
+        Console.WriteLine("Block property tool tests passed.");
+    }
+
     private static void TestGraphLibrary()
     {
         var root = Directory.CreateTempSubdirectory("kliker-graph-library-");
@@ -4173,6 +4224,25 @@ internal static class SelfTest
         var library = form.MainMenuStrip.Items.OfType<ToolStripMenuItem>().Single(item => item.Text == "Graph library");
         Assert(library.DropDownItems.OfType<ToolStripMenuItem>().Take(3).Sum(item => item.DropDownItems.Count) == 7,
             "English graph library menu groups the seven examples");
+        var addFieldEditor = typeof(MainForm).GetMethod("AddBlockFieldEditor", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        foreach (var (kind, key) in new[] { ("Log", "Text"), ("OcrImage", "EnginePath") })
+        {
+            var node = BlockCatalog.Create(kind, 0, 0);
+            var field = BlockCatalog.Get(kind).Fields.Single(item => item.Key == key);
+            foreach (var size in new[] { 9f, 14f, 18f })
+            {
+                using var font = new Font(form.Font.FontFamily, size);
+                using var box = new TextBox { Width = 250, Font = font };
+                addFieldEditor.Invoke(form, [node, field, box]);
+                using var row = (TableLayoutPanel)box.Parent!;
+                row.PerformLayout();
+                var buttons = row.Controls.OfType<Button>().ToArray();
+                Assert(buttons.Any(button => button.Text == "$x") &&
+                    (kind != "OcrImage" || buttons.Any(button => button.Text == "📁")) &&
+                    buttons.All(button => button.Width >= button.PreferredSize.Width && button.Height >= button.PreferredSize.Height),
+                    "variable and browse buttons fit their labels at default and enlarged font sizes");
+            }
+        }
         var graph = (GraphCanvas)typeof(MainForm).GetField("_graph", BindingFlags.Instance | BindingFlags.NonPublic)!
             .GetValue(form)!;
         var addBlock = typeof(MainForm).GetMethod("AddBlock", BindingFlags.Instance | BindingFlags.NonPublic)!;
@@ -4194,27 +4264,26 @@ internal static class SelfTest
             "editor popout opens a live graph window");
         editorWindow!.Close();
         Assert(graph.Parent != null && editorWindow.IsDisposed, "editor returns to main window after closing popout");
-        var journal = (ListBox)typeof(MainForm).GetField("_log", BindingFlags.Instance | BindingFlags.NonPublic)!
+        var journal = (ExecutionJournal)typeof(MainForm).GetField("_log", BindingFlags.Instance | BindingFlags.NonPublic)!
             .GetValue(form)!;
-        Assert(journal.DrawMode == DrawMode.OwnerDrawVariable &&
-            controls.OfType<CheckBox>().Any(box => box.Text == "Wrap lines"),
-            "journal has a localized wrap switch");
-        journal.Width = 250;
-        journal.Items.Add("2026-10-26 21:00:00  " + string.Join(" ", Enumerable.Repeat("long-value", 35)));
-        using (var bitmap = new Bitmap(1, 1))
-        using (var graphics = Graphics.FromImage(bitmap))
-        {
-            var measure = typeof(MainForm).GetMethod("MeasureJournalItem", BindingFlags.Instance | BindingFlags.NonPublic)!;
-            var wrapped = new MeasureItemEventArgs(graphics, journal.Items.Count - 1);
-            var wrapField = typeof(MainForm).GetField("_journalWrapEnabled", BindingFlags.Instance | BindingFlags.NonPublic)!;
-            wrapField.SetValue(form, true);
-            measure.Invoke(form, [journal, wrapped]);
-            var singleLine = new MeasureItemEventArgs(graphics, journal.Items.Count - 1);
-            wrapField.SetValue(form, false);
-            measure.Invoke(form, [journal, singleLine]);
-            Assert(wrapped.ItemHeight > singleLine.ItemHeight * 2,
-                "long journal entry gains multiple visual lines when wrapping is enabled");
-        }
+        Assert(journal.ReadOnly && controls.OfType<CheckBox>().Any(box => box.Text == "Wrap lines"),
+            "journal has a localized wrap switch and a read-only text surface");
+        journal.ClearEntries();
+        journal.AddEntry("one selected fragment");
+        journal.Select(4, 8);
+        journal.AddEntry("another line");
+        Assert(journal.SelectedText == "selected", "appending a live entry preserves the exact journal text selection");
+        journal.ClearEntries();
+        for (var index = 0; index < 500; index++) journal.AddEntry(index == 0 ? "old\r\nentry" : "entry " + index);
+        var secondLine = journal.Text.IndexOf("entry 1\n", StringComparison.Ordinal);
+        Assert(secondLine >= 0, "journal keeps embedded newlines in an entry");
+        journal.Select(secondLine, "entry 1".Length);
+        journal.AddEntry("last entry");
+        Assert(journal.Snapshot().Length == 500 && journal.Text.StartsWith("entry 1\n", StringComparison.Ordinal) &&
+            journal.SelectedText == "entry 1" && journal.Snapshot()[^1] == "last entry",
+            "the journal trims an old multiline entry without changing the selected text");
+        journal.WordWrap = false;
+        Assert(journal.SelectedText == "entry 1", "switching wrapping preserves the selection");
         var journalParent = journal.Parent;
         typeof(MainForm).GetMethod("ShowJournalWindow", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(form, null);

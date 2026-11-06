@@ -57,11 +57,11 @@ internal sealed class MainForm : Form
     private DateTime _lastCoalescedGraphEdit = DateTime.MinValue;
     private readonly FlowLayoutPanel _fields = new();
     private CancellationTokenSource? _propertyHelpCancel;
-    private readonly ListBox _log = new();
+    private readonly ExecutionJournal _log = new();
+    private readonly ToolTip _fieldTools = new();
     private readonly CheckBox _journalWrapMain = new();
     private CheckBox? _journalWrapDetached;
     private bool _journalWrapEnabled;
-    private readonly System.Windows.Forms.Timer _journalResizeTimer = new() { Interval = 130 };
     private ScriptLogWriter? _journalWriter;
     private readonly WindowsMessageInbox _messageInbox = new();
     private TableLayoutPanel _rootLayout = null!;
@@ -123,6 +123,7 @@ internal sealed class MainForm : Form
         Font = new Font("Segoe UI", 9.5f);
         KeyPreview = true;
         KeyDown += HandleEditorKeys;
+        Disposed += (_, _) => _fieldTools.Dispose();
 
         var root = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 4, ColumnCount = 1 };
         _rootLayout = root;
@@ -480,12 +481,7 @@ internal sealed class MainForm : Form
         logPanel.Controls.Add(logHeader, 0, 0);
         _log.Dock = DockStyle.Fill;
         _log.Font = new Font("Consolas", 9);
-        _log.DrawMode = DrawMode.OwnerDrawVariable;
-        _log.MeasureItem += MeasureJournalItem;
-        _log.DrawItem += DrawJournalItem;
-        _journalWrapEnabled = _settings.JournalWordWrap;
-        _log.SizeChanged += (_, _) => { if (_journalWrapEnabled) { _journalResizeTimer.Stop(); _journalResizeTimer.Start(); } };
-        _journalResizeTimer.Tick += (_, _) => { _journalResizeTimer.Stop(); RefreshJournalLayout(); };
+        _log.WordWrap = _journalWrapEnabled = _settings.JournalWordWrap;
         logPanel.Controls.Add(_log, 0, 1);
         if (!_uiPreview) InitializeTray();
         UiLanguage.ApplyTo(this);
@@ -501,7 +497,7 @@ internal sealed class MainForm : Form
             AppendLog("Проект готов. Блок «Следить за курсором» настроен на центр текущего монитора.");
         else
         {
-            _log.Items.AddRange(session.LogLines.Cast<object>().ToArray());
+            foreach (var line in session.LogLines) _log.AddEntry(line);
             _graph.Zoom = session.Zoom;
             _graph.PanOffset = session.Pan;
             UpdateWindowTitle();
@@ -1464,7 +1460,7 @@ internal sealed class MainForm : Form
         if (!changed) { AppendLog("Настройки языков и перевода сохранены."); return; }
         PendingLanguageSession = new LanguageSession(_project, _file, _codeViewActive,
             _graphCode.Text, _codeDirty, _graph.Zoom, _graph.PanOffset,
-            _log.Items.Cast<string>().TakeLast(500).ToArray());
+            _log.Snapshot());
         _exitRequested = true;
         BeginInvoke(Close);
     }
@@ -1570,8 +1566,7 @@ internal sealed class MainForm : Form
 
     private void HandleEditorKeys(object? sender, KeyEventArgs e)
     {
-        if (_graphCode.ContainsFocus) return;
-        if (_fields.Controls.Cast<Control>().Any(control => control.Focused && control is TextBoxBase or ComboBox)) return;
+        if (_graphCode.ContainsFocus || _fields.ContainsFocus || _log.ContainsFocus) return;
         if (e.Control && !e.Alt && !e.Shift && e.KeyCode == Keys.Z) UndoGraph();
         else if (e.Control && !e.Alt && !e.Shift && e.KeyCode == Keys.Y) RedoGraph();
         else if (e.Control && !e.Alt && !e.Shift && e.KeyCode == Keys.C) CopyBlocks();
@@ -1877,12 +1872,95 @@ internal sealed class MainForm : Form
         _fields.Controls.Add(delete);
     }
 
+    private void AddBlockFieldEditor(BlockNode node, FieldSpec field, TextBox box)
+    {
+        var path = BlockPathPicker.For(node, field.Key) is not null;
+        var variables = GraphVariableCatalog.CanInsert(node.Kind, field);
+        if (!path && !variables) { _fields.Controls.Add(box); return; }
+
+        var row = new TableLayoutPanel { Width = box.Width, Height = box.Height,
+            ColumnCount = 1 + (path ? 1 : 0) + (variables ? 1 : 0), RowCount = 1, Margin = box.Margin };
+        row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        row.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        box.Dock = DockStyle.Fill;
+        box.Margin = Padding.Empty;
+        row.Controls.Add(box, 0, 0);
+        var ru = UiLanguage.Code == "ru";
+        var column = 1;
+        void AddButton(string glyph, string label, Action<Button> clicked)
+        {
+            var button = new Button { Text = glyph, AccessibleName = label, Dock = DockStyle.Top,
+                Font = box.Font, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                Padding = new Padding(5, 0, 5, 0), Margin = new Padding(2, 0, 0, 0) };
+            var size = button.PreferredSize;
+            row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, Math.Max(38, size.Width + button.Margin.Horizontal)));
+            row.Height = Math.Max(row.Height, size.Height + button.Margin.Vertical);
+            _fieldTools.SetToolTip(button, label);
+            button.Click += (_, _) => clicked(button);
+            row.Controls.Add(button, column++, 0);
+        }
+        if (path) AddButton("📁", ru ? "Выбрать файл или папку…" : "Choose a file or folder…", _ =>
+        {
+            var owner = _editorWindow ?? this;
+            var projectFolder = _file is null ? AppContext.BaseDirectory : Path.GetDirectoryName(_file)!;
+            try
+            {
+                if (BlockPathPicker.Pick(owner, node, field.Key, box.Text, projectFolder) is { } chosen)
+                    box.Text = chosen;
+            }
+            catch (Exception error)
+            {
+                MessageBox.Show(owner, error.Message, ru ? "Не удалось выбрать путь" : "Could not choose a path");
+            }
+        });
+        if (variables) AddButton("$x", ru ? "Вставить переменную графа…" : "Insert a graph variable…",
+            button => ShowGraphVariables(button, box, node, field));
+        _fields.Controls.Add(row);
+    }
+
+    private void ShowGraphVariables(Button button, TextBox box, BlockNode node, FieldSpec field)
+    {
+        var identifier = VariableNameRules.IsIdentifierField(node.Kind, field);
+        var arrayField = GraphVariableCatalog.IsArrayField(node.Kind, field.Key);
+        var expression = box.Text.StartsWith('=') || field.Key == "Expression";
+        var ru = UiLanguage.Code == "ru";
+        var start = box.SelectionStart;
+        var length = box.SelectionLength;
+        var menu = new ContextMenuStrip { ShowItemToolTips = true };
+        foreach (var variable in GraphVariableCatalog.Collect(_project).Where(item =>
+                     identifier ? item.IsArray == arrayField : !item.IsArray || expression))
+        {
+            var text = GraphVariableCatalog.Insertion(variable, identifier || (node.Kind == "RunScenario" && field.Key == "Outputs"));
+            var firstUse = variable.Usages[0];
+            var item = new ToolStripMenuItem(text + "  ·  " + UiLanguage.T(firstUse.BlockTitle))
+            {
+                ToolTipText = string.Join("\n", variable.Usages.Take(12).Select(use =>
+                    $"#{use.BlockNumber} {UiLanguage.T(use.BlockTitle)} / {UiLanguage.T(use.FieldLabel)}")) +
+                    (variable.Usages.Count > 12 ? "\n…" : "")
+            };
+            item.Click += (_, _) =>
+            {
+                if (box.IsDisposed) return;
+                box.Focus();
+                if (identifier) box.SelectAll();
+                else box.Select(start, length);
+                box.SelectedText = text;
+            };
+            menu.Items.Add(item);
+        }
+        if (menu.Items.Count == 0)
+            menu.Items.Add(new ToolStripMenuItem(ru ? "Нет подходящих переменных в графе" : "No matching variables in this graph")
+                { Enabled = false });
+        menu.Closed += (_, _) => BeginInvoke(menu.Dispose);
+        menu.Show(button, new Point(0, button.Height));
+    }
+
     private void ShowProperties(BlockNode? node)
     {
         _propertyHelpCancel?.Cancel();
         _propertyHelpCancel = null;
         _selected = node;
-        _fields.Controls.Clear();
+        while (_fields.Controls.Count > 0) _fields.Controls[0].Dispose();
         if (node == null)
         {
             _selection.Text = UiLanguage.T("Свойства блока");
@@ -2044,7 +2122,7 @@ internal sealed class MainForm : Form
                 if (VariableNameRules.IsIdentifierField(node.Kind, field) && field.Key != "Reference" &&
                     box.Text.Length > 0 && !VariableNameRules.IsAscii(box.Text))
                     box.BackColor = Color.MistyRose;
-                _fields.Controls.Add(box);
+                AddBlockFieldEditor(node, field, box);
                 if (node.Kind == "RadioDialog" && field.Key == "Options")
                     _fields.Controls.Add(new Label
                     {
@@ -2063,22 +2141,6 @@ internal sealed class MainForm : Form
                             box.Text = picker.SelectedPath;
                     };
                     _fields.Controls.Add(selectProgram);
-                }
-                if (node.Kind == "RunScenario" && field.Key == "Path")
-                {
-                    var selectScenario = new Button { Text = UiLanguage.T("Выбрать сценарий…"),
-                        Width = 250, Height = 34 };
-                    selectScenario.Click += (_, _) =>
-                    {
-                        using var picker = new OpenFileDialog
-                        {
-                            Filter = "Kliker Blocks (*.klb)|*.klb", CheckFileExists = true,
-                            InitialDirectory = _file is null ? AppContext.BaseDirectory : Path.GetDirectoryName(_file)
-                        };
-                        if (picker.ShowDialog(_editorWindow ?? this) == DialogResult.OK)
-                            box.Text = picker.FileName;
-                    };
-                    _fields.Controls.Add(selectScenario);
                 }
                 if (node.Kind == "SpeakText" && field.Key == "Voice")
                 {
@@ -2424,7 +2486,7 @@ internal sealed class MainForm : Form
                 _file == null ? AppContext.BaseDirectory : Path.GetDirectoryName(_file),
                 (id, state) => UI(() => UpdateWatchIndicator(runVersion, id, state)),
                 conditionStatus: (id, selected) => UI(() => UpdateConditionIndicator(runVersion, id, selected)),
-                clearLog: () => UI(() => _log.Items.Clear()),
+                clearLog: () => UI(_log.ClearEntries),
                 showLog: visible => UI(() => SetLogVisible(visible)),
                 inputDialog: (message, value, delay, window, cancel) => OnUiAsync(() => DialogTools.Input(this, message, value, delay, cancel, options: window)),
                 choiceDialog: (message, buttons, icon, window, cancel) => OnUiAsync(() => DialogTools.Choice(this, message, buttons, icon, cancel, options: window)),
@@ -2634,12 +2696,7 @@ internal sealed class MainForm : Form
         }
     }
 
-    private void ShowLogEntry(string entry)
-    {
-        if (_log.Items.Count >= 500) _log.Items.RemoveAt(0);
-        _log.Items.Add(entry);
-        _log.TopIndex = _log.Items.Count - 1;
-    }
+    private void ShowLogEntry(string entry) => _log.AddEntry(entry);
 
     private void SetJournalWrap(bool enabled)
     {
@@ -2647,48 +2704,10 @@ internal sealed class MainForm : Form
         _journalWrapEnabled = enabled;
         if (_journalWrapMain.Checked != enabled) _journalWrapMain.Checked = enabled;
         if (_journalWrapDetached is { } detached && detached.Checked != enabled) detached.Checked = enabled;
-        RefreshJournalLayout();
+        _log.WordWrap = enabled;
         _settings.JournalWordWrap = enabled;
         try { _settings.Save(); }
         catch (Exception error) { AppendLog(UiLanguage.T("Не удалось сохранить настройку переноса журнала: ") + error.Message); }
-    }
-
-    private void RefreshJournalLayout()
-    {
-        if (_log.IsDisposed || _log.Items.Count == 0) return;
-        var entries = _log.Items.Cast<object>().ToArray();
-        _log.BeginUpdate();
-        try
-        {
-            _log.Items.Clear();
-            _log.Items.AddRange(entries);
-            _log.TopIndex = Math.Max(0, _log.Items.Count - 1);
-        }
-        finally { _log.EndUpdate(); }
-    }
-
-    private void MeasureJournalItem(object? sender, MeasureItemEventArgs e)
-    {
-        if (e.Index < 0 || e.Index >= _log.Items.Count) return;
-        if (!_journalWrapEnabled) { e.ItemHeight = _log.Font.Height + 4; return; }
-        var width = Math.Max(100, _log.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - 10);
-        var size = TextRenderer.MeasureText(e.Graphics, _log.Items[e.Index]?.ToString() ?? "",
-            _log.Font, new Size(width, int.MaxValue), TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix);
-        e.ItemHeight = Math.Max(_log.Font.Height + 4, size.Height + 4);
-    }
-
-    private void DrawJournalItem(object? sender, DrawItemEventArgs e)
-    {
-        if (e.Index < 0 || e.Index >= _log.Items.Count) return;
-        e.DrawBackground();
-        var selected = (e.State & DrawItemState.Selected) != 0;
-        var text = _log.Items[e.Index]?.ToString() ?? "";
-        TextRenderer.DrawText(e.Graphics, text, _log.Font,
-            Rectangle.Inflate(e.Bounds, -3, -1), selected ? SystemColors.HighlightText : _log.ForeColor,
-            selected ? SystemColors.Highlight : _log.BackColor,
-            (_journalWrapEnabled ? TextFormatFlags.WordBreak : TextFormatFlags.SingleLine) |
-            TextFormatFlags.NoPrefix | TextFormatFlags.Top);
-        e.DrawFocusRectangle();
     }
 
     private void SetLogVisible(bool visible)
@@ -3203,36 +3222,26 @@ internal sealed class GraphCanvas : Control
                 g.DrawLine(pause, badge.Left + 5, badge.Top + 4, badge.Left + 5, badge.Bottom - 4);
                 g.DrawLine(pause, badge.Left + 11, badge.Top + 4, badge.Left + 11, badge.Bottom - 4);
             }
-            var blockBounds = BlockCatalog.Bounds(node);
-            using var hintFont = new Font(Font.FontFamily, 8);
-            var title = node.Kind == "ShowcaseStep" ? node.Value("Caption", UiLanguage.T(spec.Title)) :
-                UiLanguage.T(spec.Title);
+            var title = BlockTitle(node, spec);
             var tall = appearance.Shape is "Square" or "Circle" or "Diamond";
             var titleBounds = TitleTextBounds(node, tall);
             using var centerText = new StringFormat { Alignment = StringAlignment.Center,
-                Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap };
+                Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap | StringFormatFlags.LineLimit };
             using var titleFont = new Font(Font.FontFamily,
                 FitTitleFontSize(g, title, Font.FontFamily, appearance.TitleFontSize, titleBounds.Width, appearance.AutoFitTitle),
                 FontStyle.Bold);
             g.DrawString(title, titleFont, Brushes.White, titleBounds, centerText);
-            var hint = UiLanguage.TOr(spec.Hint, "Настройте параметры блока ниже.");
-            if (node.Kind == "WatchCursor")
+            var hint = BlockHint(node, spec);
+            var hintBounds = HintTextBounds(node, tall);
+            if (!hintBounds.IsEmpty)
             {
-                var mode = node.Value("ActivationMode", "Переключатель") switch
-                {
-                    "Переключатель" => "перекл.", "Пока удерживается" => "удерж.", _ => "сразу"
-                };
-                var required = node.Value("RequiredHold", "Левая кнопка мыши") switch
-                {
-                    "Левая кнопка мыши" => "ЛКМ", "Правая кнопка мыши" => "ПКМ",
-                    "Средняя кнопка мыши" => "СКМ", "Нет" => "без доп.", _ => node.Value("RequiredKey", "SHIFT")
-                };
-                hint = $"{node.Value("ActivationKey", "F9")} {UiLanguage.T(mode)} + {UiLanguage.T(required)}";
+                using var hintFormat = new StringFormat { Trimming = StringTrimming.EllipsisWord,
+                    FormatFlags = StringFormatFlags.LineLimit,
+                    Alignment = tall ? StringAlignment.Center : StringAlignment.Near };
+                using var hintFont = new Font(Font.FontFamily,
+                    FitHintFontSize(g, hint, Font.FontFamily, hintBounds.Size, hintFormat));
+                g.DrawString(hint, hintFont, Brushes.WhiteSmoke, hintBounds, hintFormat);
             }
-            g.DrawString(hint, hintFont, Brushes.WhiteSmoke,
-                tall ? new RectangleF(node.X + 34, node.Y + 89, blockBounds.Width - 68, 19)
-                     : new RectangleF(node.X + 14, node.Y + 28, blockBounds.Width - 28, 19),
-                tall ? centerText : StringFormat.GenericDefault);
             if (node.Kind != "Start")
             {
                 var input = InputPoint(node);
@@ -3502,9 +3511,11 @@ internal sealed class GraphCanvas : Control
             var hoverWorld = ToWorld(e.Location);
             var port = HitPort(hoverWorld);
             var breakpoint = HitBreakpointBadge(hoverWorld);
+            var node = Project.Nodes.LastOrDefault(n => n.Kind != "Description" && BlockCatalog.Bounds(n).Contains(hoverWorld));
             var portKey = port is { } hovered
                 ? $"{hovered.Node.Id:N}:{hovered.IsInput}:{hovered.Name}" : null;
-            var hintKey = portKey ?? (breakpoint is null ? null : "breakpoint:" + breakpoint.Id.ToString("N"));
+            var hintKey = portKey ?? (breakpoint is not null ? "breakpoint:" + breakpoint.Id.ToString("N") :
+                node is not null ? "caption:" + node.Id.ToString("N") : null);
             if (_hoveredPort != hintKey)
             {
                 _hoveredPort = hintKey;
@@ -3519,6 +3530,12 @@ internal sealed class GraphCanvas : Control
                     _portToolTip.Show(UiLanguage.T("Точка останова перед блоком") + ": " +
                         UiLanguage.T("Приостанавливает сценарий перед выполнением блока."),
                         this, e.Location.X + 14, e.Location.Y + 18, 5000);
+                else if (node is not null)
+                {
+                    var spec = BlockCatalog.Get(node.Kind);
+                    _portToolTip.Show(BlockTitle(node, spec) + "\n" + BlockHint(node, spec), this,
+                        e.Location.X + 14, e.Location.Y + 18, 5000);
+                }
                 else _portToolTip.Hide(this);
             }
             if (port != null || breakpoint != null)
@@ -3527,9 +3544,9 @@ internal sealed class GraphCanvas : Control
                 return;
             }
             var grip = HitDescription(hoverWorld, out var resize);
-            var node = Project.Nodes.LastOrDefault(n => n.Kind != "Description" &&
+            var nearBlock = node is not null || Project.Nodes.Any(n => n.Kind != "Description" &&
                 Rectangle.Inflate(BlockCatalog.Bounds(n), 12, 12).Contains(hoverWorld));
-            var link = grip == null && node == null ? HitLink(hoverWorld) : null;
+            var link = grip == null && !nearBlock ? HitLink(hoverWorld) : null;
             var next = link is { } found ? (found.Source.Id, found.Port) : ((Guid Id, string Port)?)null;
             if (_hoveredLink != next) { _hoveredLink = next; Invalidate(); }
             Cursor = resize ? Cursors.SizeNWSE : grip != null ? Cursors.SizeAll : link != null ? Cursors.Hand : Cursors.Default;
@@ -3698,6 +3715,60 @@ internal sealed class GraphCanvas : Control
         return best ?? new Rectangle(min, top, size, size);
     }
 
+    private static string BlockTitle(BlockNode node, BlockSpec spec) => node.Kind == "ShowcaseStep"
+        ? node.Value("Caption", UiLanguage.T(spec.Title)) : UiLanguage.T(spec.Title);
+
+    private static string BlockHint(BlockNode node, BlockSpec spec)
+    {
+        var hint = UiLanguage.TOr(spec.Hint, "Настройте параметры блока ниже.");
+        if (node.Kind == "WatchCursor")
+        {
+            var mode = node.Value("ActivationMode", "Переключатель") switch
+            {
+                "Переключатель" => "перекл.", "Пока удерживается" => "удерж.", _ => "сразу"
+            };
+            var required = node.Value("RequiredHold", "Левая кнопка мыши") switch
+            {
+                "Левая кнопка мыши" => "ЛКМ", "Правая кнопка мыши" => "ПКМ",
+                "Средняя кнопка мыши" => "СКМ", "Нет" => "без доп.", _ => node.Value("RequiredKey", "SHIFT")
+            };
+            hint = $"{node.Value("ActivationKey", "F9")} {UiLanguage.T(mode)} + {UiLanguage.T(required)}";
+        }
+        return hint;
+    }
+
+    internal static Rectangle HintTextBounds(BlockNode node, bool tall)
+    {
+        var bounds = BlockCatalog.Bounds(node);
+        var top = bounds.Top + (tall ? 89 : 32);
+        var bottom = tall ? top + 35 : bounds.Bottom - 10;
+        var left = bounds.Left + (tall ? 37 : 14);
+        var right = bounds.Right - (tall ? 37 : 14);
+        var best = Rectangle.Empty;
+        foreach (var port in ConnectorBounds(node)
+                     .Where(port => port.Top < bottom && port.Bottom > top && port.Right > left && port.Left < right)
+                     .OrderBy(port => port.Left))
+        {
+            var width = Math.Min(right, port.Left - 3) - left;
+            if (width > best.Width) best = new Rectangle(left, top, width, bottom - top);
+            left = Math.Max(left, port.Right + 3);
+        }
+        if (right - left > best.Width) best = new Rectangle(left, top, right - left, bottom - top);
+        return best;
+    }
+
+    internal static float FitHintFontSize(Graphics graphics, string hint, FontFamily family, Size area,
+        StringFormat format)
+    {
+        for (var size = 8f; size > 7; size -= .5f)
+        {
+            using var font = new Font(family, size);
+            graphics.MeasureString(hint, font, area, format, out var fitted, out _);
+            if (fitted == hint.Length) return size;
+        }
+        return 7f;
+    }
+
     internal static Rectangle TitleTextBounds(BlockNode node, bool tall)
     {
         var bounds = BlockCatalog.Bounds(node);
@@ -3708,7 +3779,7 @@ internal sealed class GraphCanvas : Control
     private static Rectangle BuildTitleBounds(BlockNode node, Rectangle bounds, bool tall, Rectangle? badge)
     {
         var top = bounds.Top + (tall ? 62 : 7);
-        var height = tall ? 24 : 22;
+        var height = tall ? 26 : 25;
         var left = bounds.Left + (tall ? 23 : 14);
         var right = bounds.Right - (tall ? 23 : 14);
         if (!tall && badge is { } marker) left = Math.Max(left, marker.Right + 7);

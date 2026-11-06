@@ -59,6 +59,7 @@ internal sealed class AboutForm : Form
         foreach (var line in copy.Capabilities) result.AppendLine("• " + line);
         result.AppendLine("• " + (UiLanguage.Code == "ru" ? "Экранное меню: текст, речь, снимки, OCR, заметки и пользовательские графы. В заметках доступны форматирование текста и масштабирование изображений. Индикатор перетаскивается мышью." : "Screen menu: text, speech, screenshots, OCR, notes and user graphs. Notes support text formatting and image zoom. Drag the scenario indicator with the mouse."));
         result.AppendLine("• " + (UiLanguage.Code == "ru" ? "База графов: семь готовых сценариев с подсказками и рабочими копиями." : "Graph library: seven examples with on-canvas hints and working copies."));
+        result.AppendLine("• " + (UiLanguage.Code == "ru" ? "Текст журнала можно выделять и копировать. В свойствах блоков есть выбор пути и вставка переменных графа." : "Select and copy journal text. Block properties offer path selection and graph variable insertion."));
         result.AppendLine().AppendLine(copy.BlocksHeading + " (" + BlockCatalog.All.Length + ")");
         foreach (var group in BlockCatalog.All.GroupBy(spec => MainForm.CategoryFor(spec.Kind))
                      .OrderBy(group => MainForm.CategoryOrder(group.Key)))
@@ -72,6 +73,9 @@ internal sealed class AboutForm : Form
 
     private static string BuildReleases(Copy copy) =>
         "v" + AppIdentity.VersionLabel + "\r\n" + (UiLanguage.Code == "ru"
+            ? "Журнал поддерживает выделение текста. В свойствах блоков доступны выбор файлов и папок и вставка переменных текущего графа. Подписи блоков рисуются целыми строками."
+            : "The journal supports text selection. Block properties can browse for files and folders and insert variables from the current graph. Block captions render complete lines.") +
+        "\r\n\r\nv1.2.6\r\n" + (UiLanguage.Code == "ru"
             ? "Добавлена база из семи готовых графов. Исправлено возвращение экранного меню после выбора области, отмены или ошибки захвата."
             : "Added a library of seven ready-to-use graphs. Fixed reopening the screen menu after selecting a region, cancelling, or encountering a capture error.") +
         "\r\n\r\nv1.2.5\r\n" + (UiLanguage.Code == "ru"
