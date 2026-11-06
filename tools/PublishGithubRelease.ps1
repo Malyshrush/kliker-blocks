@@ -17,6 +17,9 @@ $names = @(
     "KlikerBlocks-Portable-$Version-x64.zip", "KlikerBlocks-Portable-$Version-x86.zip",
     "RELEASE_NOTES_$Version.md", "editor-ru.png", "automation-ru.png", "help-ru.png", "support-ru.png"
 )
+if ([version]$Version -ge [version]'1.2.6') {
+    $names += "KlikerBlocks-Graphs-$Version-ru.zip", "KlikerBlocks-Graphs-$Version-en.zip"
+}
 foreach ($name in $names) {
     $path = Join-Path $releaseDir $name
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing release asset: $path" }

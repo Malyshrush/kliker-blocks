@@ -46,7 +46,7 @@ internal static class ScreenTextMenu
             }
             using var menu = new ScreenTextMenuForm(text, settings.ScreenMenuFolder,
                 settings.ScreenMenuGraphs ?? [], runGraph, ensureOcr);
-            menu.ShowDialog();
+            await menu.ShowMenuAsync();
         }
         catch (Exception error) { MessageBox.Show(error.Message, L("Экранное меню", "Screen menu"), MessageBoxButtons.OK, MessageBoxIcon.Warning); }
     }
@@ -142,25 +142,9 @@ internal sealed class ScreenTextMenuForm : Form
             try { _status.Text = L("Сохранено: ", "Saved: ") + ScreenTextMenu.SaveText(_folder, _text); }
             catch (Exception error) { MessageBox.Show(this, error.Message, L("Ошибка сохранения", "Save error"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
         };
-        capture.Click += async (_, _) =>
+        capture.Click += (_, _) =>
         {
-            Hide();
-            try
-            {
-                await Task.Delay(150);
-                using var overlay = new CaptureOverlay(rectangleOnly: true);
-                if (overlay.ShowDialog() != DialogResult.OK) return;
-                await Task.Delay(150);
-                Directory.CreateDirectory(_folder);
-                var path = Path.Combine(_folder, "Screenshot_" + DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss") + "_" + Guid.NewGuid().ToString("N")[..8] + ".png");
-                using var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write);
-                using var image = ScreenTools.Capture(overlay.SelectedArea);
-                image.Save(stream, System.Drawing.Imaging.ImageFormat.Png);
-                _imagePath = path;
-                _status.Text = L("Снимок: ", "Screenshot: ") + path;
-            }
-            catch (Exception error) { MessageBox.Show(error.Message); }
-            finally { Show(); Activate(); }
+            if (_operation is null) DialogResult = DialogResult.Retry;
         };
         ocr.Click += async (_, _) =>
         {
@@ -204,6 +188,34 @@ internal sealed class ScreenTextMenuForm : Form
         };
         FormClosing += (_, _) => { _speech?.Cancel(); _operation?.Cancel(); };
     }
+
+    internal async Task ShowMenuAsync(Func<Rectangle, Bitmap>? captureScreen = null)
+    {
+        // Finish the modal session before awaiting capture. Hiding a modal form
+        // also ends its session and lets the caller dispose it prematurely.
+        while (!IsDisposed && ShowDialog() == DialogResult.Retry)
+        {
+            try
+            {
+                await Task.Delay(150);
+                using var overlay = new CaptureOverlay(rectangleOnly: true);
+                if (overlay.ShowDialog() != DialogResult.OK) continue;
+                await Task.Delay(150);
+                using var image = (captureScreen ?? ScreenTools.Capture)(overlay.SelectedArea);
+                Directory.CreateDirectory(_folder);
+                var path = Path.Combine(_folder, "Screenshot_" + DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss") + "_" + Guid.NewGuid().ToString("N")[..8] + ".png");
+                using (var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write))
+                    image.Save(stream, System.Drawing.Imaging.ImageFormat.Png);
+                _imagePath = path;
+                _status.Text = L("Снимок: ", "Screenshot: ") + path;
+            }
+            catch (Exception error)
+            {
+                _status.Text = L("Не удалось сделать снимок: ", "Could not capture the screen: ") + error.Message;
+            }
+        }
+    }
+
     private sealed record VoiceOption(string Label, string Name) { public override string ToString() => Label; }
 }
 

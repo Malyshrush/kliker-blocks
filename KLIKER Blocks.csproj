@@ -8,7 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>Kliker.Blocks</AssemblyName>
-    <Version>1.2.5</Version>
+    <Version>1.2.6</Version>
     <ApplicationIcon>Assets\Kliker.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
@@ -21,6 +21,8 @@
     <Using Include="System.Net.Http" />
     <Using Include="System.IO" />
     <Content Include="Examples\*.klb" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <EmbeddedResource Include="GraphLibrary.zip" LogicalName="KlikerBlocks.GraphLibrary.zip" />
+    <EmbeddedResource Include="GraphLibrary.en.zip" LogicalName="KlikerBlocks.GraphLibrary.en.zip" WithCulture="false" />
     <Content Include="Assets\Support\*.png" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="Assets\Support\*.jpg" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="Languages\en*.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />

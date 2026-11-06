@@ -240,7 +240,7 @@ internal sealed class MainForm : Form
         websiteMenu.Click += (_, _) => WebsiteLinks.Open(this);
         var supportMenu = new ToolStripMenuItem(UiLanguage.T("Поддержать проект"));
         supportMenu.Click += (_, _) => new SupportForm().Show(this);
-        menu.Items.AddRange([fileMenu, editorMenu, blocksMenu, captureMenu, macroMenu, scenarioMenu, mouseMenu, languagesMenu, showcaseMenu, websiteMenu, supportMenu, _updateBadge, helpMenu]);
+        menu.Items.AddRange([fileMenu, editorMenu, blocksMenu, CreateGraphLibraryMenu(), captureMenu, macroMenu, scenarioMenu, mouseMenu, languagesMenu, showcaseMenu, websiteMenu, supportMenu, _updateBadge, helpMenu]);
         foreach (ToolStripMenuItem item in menu.Items)
         {
             item.Padding = new Padding(9, 5, 9, 5);
@@ -2795,6 +2795,45 @@ internal sealed class MainForm : Form
         if (_codeViewActive) LoadGraphCode();
     }
 
+    private ToolStripMenuItem CreateGraphLibraryMenu()
+    {
+        var ru = UiLanguage.Code == "ru";
+        var menu = new ToolStripMenuItem(ru ? "База графов" : "Graph library");
+        foreach (var section in GraphLibrary.Sections)
+        {
+            var category = new ToolStripMenuItem(ru ? section.Russian : section.English);
+            foreach (var entry in section.Entries)
+                AddMenuItem(category, ru ? entry.Russian : entry.English, (_, _) => OpenLibraryGraph(entry));
+            menu.DropDownItems.Add(category);
+        }
+        AddMenuItem(menu, ru ? "Графы на сайте…" : "Browse graphs online…", (_, _) =>
+            WebsiteLinks.Open(this, WebsiteLinks.Home + "graphs.html#ready-graphs"));
+        return menu;
+    }
+
+    private void OpenLibraryGraph(GraphLibrary.Entry entry)
+    {
+        var ru = UiLanguage.Code == "ru";
+        if (_cancel is not null || _screenGraphActive)
+        {
+            MessageBox.Show(this, ru ? "Сначала остановите сценарий." : "Stop the running scenario first.");
+            return;
+        }
+        if (!TryApplyGraphCode()) return;
+        var save = MessageBox.Show(this, ru ? "Сохранить текущий граф перед открытием примера?"
+            : "Save the current graph before opening the example?", Text, MessageBoxButtons.YesNoCancel);
+        if (save == DialogResult.Cancel || save == DialogResult.Yes && !TrySaveProject()) return;
+        try
+        {
+            var path = GraphLibrary.OpenWorkingCopy(entry, Path.Combine(ProjectCompatibility.UserProjectDirectory, "Graph Library"));
+            if (TryLoadProjectFromPath(path)) AppendLog((ru ? "Граф из базы открыт: " : "Library graph opened: ") + path);
+        }
+        catch (Exception error)
+        {
+            MessageBox.Show(this, error.Message, ru ? "Не удалось открыть граф из базы" : "Could not open the library graph");
+        }
+    }
+
     private void OpenProject()
     {
         if (_cancel != null) { MessageBox.Show("Сначала остановите сценарий."); return; }
@@ -2830,24 +2869,28 @@ internal sealed class MainForm : Form
         catch (Exception ex) { MessageBox.Show(this, ex.Message, UiLanguage.T("Не удалось открыть проект")); return false; }
     }
 
-    private void SaveProject()
+    private void SaveProject() => TrySaveProject();
+
+    private bool TrySaveProject()
     {
-        if (!TryApplyGraphCode()) return;
-        if (!CheckAsciiNames(_project)) return;
+        if (!TryApplyGraphCode()) return false;
+        if (!CheckAsciiNames(_project)) return false;
         using var dialog = new SaveFileDialog { Filter = "Проекты Kliker Blocks (*.klb)|*.klb", DefaultExt = "klb",
             InitialDirectory = _file is null ? ProjectCompatibility.UserProjectDirectory : Path.GetDirectoryName(_file),
             FileName = _file == null ? "Мой сценарий.klb" : Path.GetFileName(_file) };
         try { Directory.CreateDirectory(ProjectCompatibility.UserProjectDirectory); }
-        catch (Exception ex) { MessageBox.Show(this, ex.Message, UiLanguage.T("Не удалось сохранить проект")); return; }
-        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        catch (Exception ex) { MessageBox.Show(this, ex.Message, UiLanguage.T("Не удалось сохранить проект")); return false; }
+        if (dialog.ShowDialog(this) != DialogResult.OK) return false;
         try
         {
             File.WriteAllText(dialog.FileName, JsonSerializer.Serialize(_project, new JsonSerializerOptions { WriteIndented = true }));
             _file = dialog.FileName;
             UpdateWindowTitle();
             AppendLog("Проект сохранён: " + _file);
+            return true;
         }
         catch (Exception ex) { MessageBox.Show(ex.Message, "Не удалось сохранить проект"); }
+        return false;
     }
 
     private void ShareProject()

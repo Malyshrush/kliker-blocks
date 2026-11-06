@@ -294,6 +294,8 @@ internal static class SelfTest
         }
         TestMouseMappings();
         TestDialogWindowOptions();
+        TestScreenMenuCapture();
+        TestGraphLibrary();
         TestSupportLinks();
         TestLanguagePacksAndNames();
         TestDisplayedBranding();
@@ -3634,6 +3636,154 @@ internal static class SelfTest
         owner.Close();
     }
 
+    private static void TestGraphLibrary()
+    {
+        var root = Directory.CreateTempSubdirectory("kliker-graph-library-");
+        var previousLanguage = UiLanguage.Code;
+        try
+        {
+            foreach (var language in new[] { "ru", "en" })
+            {
+                UiLanguage.Configure(language);
+                var entries = GraphLibrary.Sections.SelectMany(section => section.Entries).ToArray();
+                Assert(entries.Length == 7, "library contains seven examples");
+                foreach (var entry in entries)
+                {
+                    var path = GraphLibrary.OpenWorkingCopy(entry, root.FullName);
+                    var project = ProjectCompatibility.Read(path);
+                    Assert(project.ScriptName == (language == "ru" ? entry.Russian : entry.English) &&
+                        project.Nodes.Any(node => node.Kind == "Description"), "graph library opens a localized example with hints");
+                    Assert(File.Exists(Path.Combine(Path.GetDirectoryName(path)!, language == "ru" ? "Проверка.md" : "Instructions.md")),
+                        "library copies the setup instructions alongside the graph");
+                    File.AppendAllText(path, "\n ");
+                    Assert(GraphLibrary.OpenWorkingCopy(entry, root.FullName) == path && File.ReadAllText(path).EndsWith("\n "),
+                        "reopening the library does not replace the working copy");
+                }
+            }
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+            UiLanguage.Configure(previousLanguage);
+        }
+        Console.WriteLine("Graph library tests passed (RU/EN).");
+    }
+
+    private static void TestScreenMenuCapture()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "kliker-screen-capture-test-" + Guid.NewGuid().ToString("N"));
+        var previousContext = SynchronizationContext.Current;
+        var previousLanguage = UiLanguage.Code;
+        Directory.CreateDirectory(folder);
+        try
+        {
+            foreach (var language in new[] { "ru", "en" })
+            {
+                UiLanguage.Configure(language);
+                var outputFolder = Directory.CreateDirectory(Path.Combine(folder, language)).FullName;
+                string? graphImage = null;
+                string? graphText = null;
+                using var menu = new ScreenTextMenuForm("sample text", outputFolder, [new ScreenMenuGraph { Name = "Sample" }],
+                    (_, text, path, _) => { graphText = text; graphImage = path; return Task.CompletedTask; },
+                    (_, _) => Task.FromResult<string?>(null));
+                menu.Opacity = 0;
+                menu.ShowInTaskbar = false;
+                using var host = new Form { Opacity = 0, ShowInTaskbar = false };
+                using var timer = new System.Windows.Forms.Timer { Interval = 25 };
+                var layout = menu.Controls.OfType<FlowLayoutPanel>().Single();
+                var capture = layout.Controls.OfType<FlowLayoutPanel>().SelectMany(panel => panel.Controls.OfType<Button>())
+                    .Single(button => button.Text == (language == "ru" ? "Выбрать область экрана…" : "Select screen area…"));
+                var run = layout.Controls.OfType<Button>()
+                    .Single(button => button.Text == (language == "ru" ? "Запустить граф" : "Run graph"));
+                var stage = 0;
+                var captureCount = 0;
+                Exception? failure = null;
+                var deadline = Stopwatch.StartNew();
+                timer.Tick += (_, _) =>
+                {
+                    var overlay = Application.OpenForms.OfType<CaptureOverlay>().FirstOrDefault(form => form.Visible);
+                    try
+                    {
+                        if (deadline.Elapsed > TimeSpan.FromSeconds(8))
+                            throw new TimeoutException("Screen menu capture stopped at stage " + stage);
+                        if (stage is 0 or 2 or 4 && menu.Visible)
+                        {
+                            stage++;
+                            capture.PerformClick();
+                        }
+                        else if (stage is 1 or 3 or 5 && overlay is not null)
+                        {
+                            Assert(!menu.Visible, "screen menu stays out of the selection overlay");
+                            overlay.Opacity = 0;
+                            var cancel = stage == 3;
+                            stage++;
+                            if (cancel)
+                                typeof(CaptureOverlay).GetMethod("OnKeyDown", BindingFlags.Instance | BindingFlags.NonPublic)!
+                                    .Invoke(overlay, [new KeyEventArgs(Keys.Escape)]);
+                            else
+                            {
+                                typeof(CaptureOverlay).GetMethod("OnMouseDown", BindingFlags.Instance | BindingFlags.NonPublic)!
+                                    .Invoke(overlay, [new MouseEventArgs(MouseButtons.Left, 1, 20, 100, 0)]);
+                                typeof(CaptureOverlay).GetMethod("OnMouseUp", BindingFlags.Instance | BindingFlags.NonPublic)!
+                                    .Invoke(overlay, [new MouseEventArgs(MouseButtons.Left, 1, 60, 130, 0)]);
+                            }
+                        }
+                        else if (stage == 6 && menu.Visible)
+                        {
+                            timer.Stop();
+                            stage++;
+                            Assert(layout.Controls.OfType<Label>().Any(label => label.Text.StartsWith(
+                                language == "ru" ? "Не удалось сделать снимок: " : "Could not capture the screen: ")),
+                                "capture failure is displayed in the reopened menu");
+                            run.PerformClick();
+                            menu.Close();
+                        }
+                    }
+                    catch (Exception error)
+                    {
+                        failure = error;
+                        timer.Stop();
+                        overlay?.Close();
+                        menu.Dispose();
+                    }
+                };
+                host.Shown += async (_, _) =>
+                {
+                    try
+                    {
+                        timer.Start();
+                        await menu.ShowMenuAsync(bounds =>
+                        {
+                            if (++captureCount == 2) throw new IOException("Synthetic capture failure");
+                            return new Bitmap(bounds.Width, bounds.Height);
+                        });
+                    }
+                    catch (Exception error) { failure ??= error; }
+                    finally { timer.Stop(); host.Close(); }
+                };
+                Application.Run(host);
+                if (failure is not null) throw new InvalidOperationException("Screen menu capture regression failed.", failure);
+                var png = Directory.GetFiles(outputFolder, "*.png").Single();
+                using var image = new Bitmap(png);
+                Assert(stage == 7 && captureCount == 2 && image.Size == new Size(40, 30) &&
+                    graphImage == png && graphText == "sample text",
+                    "menu reopens after capture, Escape and capture failure and keeps the last successful image");
+            }
+        }
+        finally
+        {
+            foreach (var subfolder in Directory.GetDirectories(folder))
+            {
+                foreach (var file in Directory.GetFiles(subfolder)) File.Delete(file);
+                Directory.Delete(subfolder);
+            }
+            Directory.Delete(folder);
+            UiLanguage.Configure(previousLanguage);
+            SynchronizationContext.SetSynchronizationContext(previousContext);
+        }
+        Console.WriteLine("Screen menu capture tests passed (RU/EN).");
+    }
+
     private static void TestSystemBeep()
     {
         var tone = AudioTools.CreateToneWave(523, 120);
@@ -4020,6 +4170,9 @@ internal static class SelfTest
             form.MainMenuStrip.Items.Cast<ToolStripItem>().Any(item => item.Text == "Editor") &&
             form.MainMenuStrip.Renderer is KlikerMenuRenderer,
             "journal popout and localized editor menu are available");
+        var library = form.MainMenuStrip.Items.OfType<ToolStripMenuItem>().Single(item => item.Text == "Graph library");
+        Assert(library.DropDownItems.OfType<ToolStripMenuItem>().Take(3).Sum(item => item.DropDownItems.Count) == 7,
+            "English graph library menu groups the seven examples");
         var graph = (GraphCanvas)typeof(MainForm).GetField("_graph", BindingFlags.Instance | BindingFlags.NonPublic)!
             .GetValue(form)!;
         var addBlock = typeof(MainForm).GetMethod("AddBlock", BindingFlags.Instance | BindingFlags.NonPublic)!;

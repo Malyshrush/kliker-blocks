@@ -58,6 +58,7 @@ internal sealed class AboutForm : Form
         result.AppendLine(copy.Introduction).AppendLine();
         foreach (var line in copy.Capabilities) result.AppendLine("• " + line);
         result.AppendLine("• " + (UiLanguage.Code == "ru" ? "Экранное меню: текст, речь, снимки, OCR, заметки и пользовательские графы. В заметках доступны форматирование текста и масштабирование изображений. Индикатор перетаскивается мышью." : "Screen menu: text, speech, screenshots, OCR, notes and user graphs. Notes support text formatting and image zoom. Drag the scenario indicator with the mouse."));
+        result.AppendLine("• " + (UiLanguage.Code == "ru" ? "База графов: семь готовых сценариев с подсказками и рабочими копиями." : "Graph library: seven examples with on-canvas hints and working copies."));
         result.AppendLine().AppendLine(copy.BlocksHeading + " (" + BlockCatalog.All.Length + ")");
         foreach (var group in BlockCatalog.All.GroupBy(spec => MainForm.CategoryFor(spec.Kind))
                      .OrderBy(group => MainForm.CategoryOrder(group.Key)))
@@ -71,6 +72,9 @@ internal sealed class AboutForm : Form
 
     private static string BuildReleases(Copy copy) =>
         "v" + AppIdentity.VersionLabel + "\r\n" + (UiLanguage.Code == "ru"
+            ? "Добавлена база из семи готовых графов. Исправлено возвращение экранного меню после выбора области, отмены или ошибки захвата."
+            : "Added a library of seven ready-to-use graphs. Fixed reopening the screen menu after selecting a region, cancelling, or encountering a capture error.") +
+        "\r\n\r\nv1.2.5\r\n" + (UiLanguage.Code == "ru"
             ? "Добавлены экранное меню для выделенного текста, снимков и пользовательских графов; заметки с текстом и изображением и блок управления заметками. Индикатор можно перетаскивать, лишние блоки «Старт» — удалять."
             : "Added a screen menu for selected text, screenshots and user graphs; notes with text and images and a Note control block. The indicator can be dragged and extra Start blocks deleted.") +
         "\r\n\r\nv1.2.4\r\n" + (UiLanguage.Code == "ru"

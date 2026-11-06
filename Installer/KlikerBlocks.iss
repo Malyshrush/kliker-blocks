@@ -1,4 +1,4 @@
-#define AppVersion "1.2.5"
+#define AppVersion "1.2.6"
 #define AppName "Kliker Blocks"
 #ifndef SmokeTest
   #define SmokeTest "0"
@@ -34,10 +34,10 @@ DefaultGroupName=Kliker Blocks
 #endif
 DisableProgramGroupPage=yes
 #if SmokeTest == "1"
-  OutputDir=..\obj\install-smoke-v125
+  OutputDir=..\obj\install-smoke-v126
 OutputBaseFilename=KlikerBlocks-Smoke-{#AppVersion}-{#BuildArch}
 #else
-  OutputDir=..\publish-v125
+  OutputDir=..\publish-v126
 OutputBaseFilename=KlikerBlocks-Setup-{#AppVersion}-{#BuildArch}
 #endif
 SetupIconFile=..\Assets\Kliker.ico
@@ -77,7 +77,7 @@ Name: "autostart"; Description: "{cm:Autostart}"; Flags: unchecked
 Name: "taskbartip"; Description: "{cm:TaskbarTip}"; Flags: unchecked
 
 [Files]
-Source: "..\installer-payload-v125-notes-{#BuildArch}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\installer-payload-v126-final-{#BuildArch}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 #if SmokeTest == "1"
