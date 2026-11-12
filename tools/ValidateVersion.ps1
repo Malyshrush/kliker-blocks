@@ -1,4 +1,4 @@
-param([Parameter(Mandatory = $true)][string]$Version, [switch]$LocalCandidate)
+param([Parameter(Mandatory = $true)][string]$Version, [switch]$LocalCandidate, [string]$CandidateSuffix = '')
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 $site = Join-Path (Split-Path $root -Parent) 'site\docs\index.html'
@@ -36,7 +36,7 @@ foreach ($arch in @('x64', 'x86')) {
 }
 if (-not $html.Contains("$releaseVersion")) { throw 'Website version does not match last published release.' }
 if (-not $LocalCandidate -and $releaseVersion -ne $Version) { throw 'Public site and registry do not match the release version.' }
-$release = Join-Path $root ("publish-v$($Version.Replace('.', ''))\RELEASE_NOTES_$Version.md")
+$release = Join-Path $root ("publish-v$($Version.Replace('.', ''))$CandidateSuffix\RELEASE_NOTES_$Version.md")
 if (-not (Test-Path -LiteralPath $release)) { throw 'Bilingual release notes are missing.' }
 if ($LocalCandidate) {
     Write-Output "Local candidate $Version matches project, installer, RU/EN help and release notes; README and site remain on published $releaseVersion."

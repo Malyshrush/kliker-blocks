@@ -1,8 +1,8 @@
-param([string]$Version = '1.2.3')
+param([string]$Version = '1.2.3', [string]$CandidateSuffix = '')
 $ErrorActionPreference = 'Stop'
 $project = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
-$releaseDir = Join-Path $project ('publish-v' + ($Version -replace '\.', ''))
-& (Join-Path $PSScriptRoot 'ValidateReleasePayload.ps1') -Version $Version
+$releaseDir = Join-Path $project ('publish-v' + ($Version -replace '\.', '') + $CandidateSuffix)
+& (Join-Path $PSScriptRoot 'ValidateReleasePayload.ps1') -Version $Version -CandidateSuffix $CandidateSuffix
 $envFile = Join-Path (Split-Path $project -Parent) '.env'
 $line = Get-Content -LiteralPath $envFile | Where-Object { $_ -match '^GITHUB_TOKEN=' } | Select-Object -First 1
 if (-not $line) { throw 'GITHUB_TOKEN is missing from project .env' }

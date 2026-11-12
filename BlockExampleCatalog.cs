@@ -295,6 +295,13 @@ internal static class BlockExampleCatalog
             case "WatchCursor": Set("DurationMs", "2000"); Set("ActivationMode", "Сразу"); Set("RequiredHold", "Нет"); break;
             case "MoveRelative": Set("DeltaX", "15"); Set("DeltaY", "0"); break;
             case "ClipboardSet": Set("Text", "Kliker Blocks example"); break;
+            case "CountTextChars": Set("Text", "111 22 A"); Set("Mode", "Только из списка"); Set("Include", "1\n2"); break;
+            case "CountFileChars":
+            case "EditFileLine":
+            case "EditFileText":
+                ru += " Перед запуском выберите существующий тестовый текстовый файл. Для сохранения копии задайте выходной путь.";
+                en += " Select an existing test text file before running. Set an output path to save a copy.";
+                break;
             case "TextFile": Set("Path", "KlikerBlocks-help-example.txt"); Set("Action", "Добавить строку"); Set("Value", "Hello from Kliker Blocks"); break;
             case "CsvTable":
                 Set("Path", "KlikerBlocks-help-example.csv");

@@ -1,4 +1,4 @@
-#define AppVersion "1.2.7"
+#define AppVersion "1.2.8"
 #define AppName "Kliker Blocks"
 #ifndef SmokeTest
   #define SmokeTest "0"
@@ -34,10 +34,10 @@ DefaultGroupName=Kliker Blocks
 #endif
 DisableProgramGroupPage=yes
 #if SmokeTest == "1"
-  OutputDir=..\obj\install-smoke-v127
+  OutputDir=..\obj\install-smoke-v128-text
 OutputBaseFilename=KlikerBlocks-Smoke-{#AppVersion}-{#BuildArch}
 #else
-  OutputDir=..\publish-v127
+  OutputDir=..\publish-v128-text
 OutputBaseFilename=KlikerBlocks-Setup-{#AppVersion}-{#BuildArch}
 #endif
 SetupIconFile=..\Assets\Kliker.ico
@@ -56,6 +56,7 @@ ShowLanguageDialog=no
 LanguageDetectionMethod=uilanguage
 UsePreviousLanguage=no
 WizardStyle=modern
+ChangesAssociations=yes
 
 [Languages]
 Name: "en"; MessagesFile: "compiler:Default.isl"
@@ -77,7 +78,7 @@ Name: "autostart"; Description: "{cm:Autostart}"; Flags: unchecked
 Name: "taskbartip"; Description: "{cm:TaskbarTip}"; Flags: unchecked
 
 [Files]
-Source: "..\installer-payload-v127-candidate-{#BuildArch}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\installer-payload-v128-text-candidate-{#BuildArch}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 #if SmokeTest == "1"
@@ -89,6 +90,13 @@ Name: "{userdesktop}\Kliker Blocks"; Filename: "{app}\Kliker.Blocks.exe"; Tasks:
 #endif
 
 [Registry]
+#if SmokeTest != "1"
+Root: HKCU; Subkey: "Software\Classes\.klnote\OpenWithProgids"; ValueType: string; ValueName: "KlikerBlocks.Note"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Classes\KlikerBlocks.Note"; ValueType: string; ValueData: "Kliker Blocks Note"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\KlikerBlocks.Note\DefaultIcon"; ValueType: string; ValueData: "{app}\Kliker.Blocks.exe,0"
+Root: HKCU; Subkey: "Software\Classes\KlikerBlocks.Note\shell\open\command"; ValueType: string; ValueData: """{app}\Kliker.Blocks.exe"" ""%1"""
+Root: HKCU; Subkey: "Software\Classes\Applications\Kliker.Blocks.exe\shell\open\command"; ValueType: string; ValueData: """{app}\Kliker.Blocks.exe"" ""%1"""; Flags: uninsdeletekey
+#endif
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "KlikerBlocks"; ValueData: """{app}\Kliker.Blocks.exe"" --windows-startup"; Tasks: autostart; Flags: uninsdeletevalue
 
 [Run]

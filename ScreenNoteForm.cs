@@ -40,10 +40,11 @@ internal sealed class ScreenNoteForm : Form
     private string? _path;
     private readonly string _folder;
     private bool _dirty;
+    private string? _savedState;
     internal string? SavedPath => _path;
     internal string NoteId = "";
     internal string GetNoteText() => _text.Text;
-    internal void RefreshTitle() { Text = L("Заметка", "Note") + (NoteId.Length == 0 ? "" : " [" + NoteId + "]") + (_path is null ? "" : " — " + _path); _caption.Text = Text; }
+    internal void RefreshTitle() { Text = (_path is null ? L("Заметка", "Note") : Path.GetFileNameWithoutExtension(_path)) + (NoteId.Length == 0 ? "" : " [" + NoteId + "]"); _caption.Text = Text; if (_path is not null) _tips.SetToolTip(_caption, _path); }
 
     internal ScreenNoteForm(string text = "", string imagePath = "", string? folder = null)
     {
@@ -135,12 +136,12 @@ internal sealed class ScreenNoteForm : Form
         {
             var prompt = _path is null ? L("Удалить эту несохранённую заметку?", "Delete this unsaved note?") : L("Удалить заметку и её файл?\n", "Delete the note and its file?\n") + _path;
             if (MessageBox.Show(this, prompt, Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
-            try { if (_path is not null && File.Exists(_path)) File.Delete(_path); _dirty = false; Close(); }
+            try { if (_path is not null && File.Exists(_path)) File.Delete(_path); _savedState = null; _dirty = false; Close(); }
             catch (Exception error) { MessageBox.Show(this, error.Message, L("Ошибка удаления", "Delete error")); }
         };
         FormClosing += (_, e) =>
         {
-            if (!_dirty) return;
+            if (!HasUnsavedChanges()) return;
             var answer = MessageBox.Show(this, L("Сохранить изменения заметки перед закрытием?", "Save changes to the note before closing?"), Text, MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
             if (answer == DialogResult.Cancel || (answer == DialogResult.Yes && !SaveNote())) e.Cancel = true;
         };
@@ -264,19 +265,26 @@ internal sealed class ScreenNoteForm : Form
             throw new ArgumentException(L("Файл заметки должен иметь расширение .klnote.", "Note files must use the .klnote extension."));
         if (ScreenNoteManager.IsFileOpen(path, this))
             throw new InvalidOperationException(L("Этот файл уже открыт в другой заметке.", "This file is already open in another note."));
-        var bounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
-        var data = new NoteData { Text = _text.Text, RichText = _text.Rtf, ImageZoom = _picture.ViewZoom, ImageOffsetX = _picture.ViewOffset.X, ImageOffsetY = _picture.ViewOffset.Y, TextVisible = _textEnabled, ImageVisible = _imageEnabled, SplitRatio = _splitRatio,
-            PreserveImageAspect = _picture.SizeMode == PictureBoxSizeMode.Zoom,
-            X = bounds.X, Y = bounds.Y, Width = bounds.Width, Height = bounds.Height };
-        if (_picture.Image is not null) { using var bytes = new MemoryStream(); _picture.Image.Save(bytes, System.Drawing.Imaging.ImageFormat.Png); data.ImageBase64 = Convert.ToBase64String(bytes.ToArray()); }
-        var serialized = JsonSerializer.Serialize(data);
+        var serialized = SerializeState();
         if (System.Text.Encoding.UTF8.GetByteCount(serialized) > 32 * 1024 * 1024)
             throw new InvalidOperationException(L("Заметка превышает 32 МиБ. Уменьшите изображение или текст.", "The note exceeds 32 MiB. Reduce the image or text."));
         var absolute = Path.GetFullPath(path);
         var temporary = Path.Combine(Path.GetDirectoryName(absolute)!, ".kliker-note-" + Guid.NewGuid().ToString("N") + ".tmp");
         try { File.WriteAllText(temporary, serialized); File.Move(temporary, absolute, true); }
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
-        _path = absolute; _dirty = false; RefreshTitle();
+        _path = absolute; _savedState = serialized; _dirty = false; RefreshTitle();
+    }
+
+    internal bool HasUnsavedChanges() => _savedState is null ? _dirty : SerializeState() != _savedState;
+
+    private string SerializeState()
+    {
+        var bounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+        var data = new NoteData { Text = _text.Text, RichText = _text.Rtf ?? "", ImageZoom = _picture.ViewZoom, ImageOffsetX = _picture.ViewOffset.X, ImageOffsetY = _picture.ViewOffset.Y, TextVisible = _textEnabled, ImageVisible = _imageEnabled, SplitRatio = _splitRatio,
+            PreserveImageAspect = _picture.SizeMode == PictureBoxSizeMode.Zoom,
+            X = bounds.X, Y = bounds.Y, Width = bounds.Width, Height = bounds.Height };
+        if (_picture.Image is not null) { using var bytes = new MemoryStream(); _picture.Image.Save(bytes, System.Drawing.Imaging.ImageFormat.Png); data.ImageBase64 = Convert.ToBase64String(bytes.ToArray()); }
+        return JsonSerializer.Serialize(data);
     }
 
     internal static ScreenNoteForm LoadFrom(string path)
@@ -299,7 +307,7 @@ internal sealed class ScreenNoteForm : Form
             if (data.X.HasValue && data.Y.HasValue && Screen.AllScreens.Any(screen => screen.WorkingArea.IntersectsWith(new Rectangle(data.X.Value, data.Y.Value, 50, 50))))
             { form.StartPosition = FormStartPosition.Manual; form.Location = new Point(data.X.Value, data.Y.Value); }
             form.UpdateSections(); form._headerTimer.Stop(); form._header.Visible = false;
-            form._dirty = false; form.RefreshTitle();
+            form._savedState = form.SerializeState(); form._dirty = false; form.RefreshTitle();
             return form;
         }
         catch { form.Dispose(); throw; }

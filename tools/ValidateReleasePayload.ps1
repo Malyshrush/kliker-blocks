@@ -1,8 +1,8 @@
-﻿param([string]$Version = '1.2.3', [switch]$LocalCandidate)
+param([string]$Version = '1.2.3', [switch]$LocalCandidate, [string]$CandidateSuffix = '')
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $root = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
-$release = Join-Path $root ('publish-v' + ($Version -replace '\.', ''))
+$release = Join-Path $root ('publish-v' + ($Version -replace '\.', '') + $CandidateSuffix)
 if ($LocalCandidate) {
     $project = Get-Content -LiteralPath (Join-Path $root 'KLIKER Blocks.csproj') -Raw
     $installer = Get-Content -LiteralPath (Join-Path $root 'Installer\KlikerBlocks.iss') -Raw
@@ -19,7 +19,7 @@ if ($LocalCandidate) {
         throw 'Candidate release notes must identify the local candidate in Russian and English.'
     }
 } else {
-    & (Join-Path $PSScriptRoot 'ValidateVersion.ps1') -Version $Version
+    & (Join-Path $PSScriptRoot 'ValidateVersion.ps1') -Version $Version -CandidateSuffix $CandidateSuffix
 }
 if (-not $LocalCandidate) {
     & (Join-Path $PSScriptRoot 'UpdateFeatureInventory.ps1') -Check
@@ -48,7 +48,11 @@ function Test-Entry([string]$relative) {
 foreach ($arch in @('x64', 'x86')) {
     $setupPath = Join-Path $release "KlikerBlocks-Setup-$Version-$arch.exe"
     if (-not (Test-Path -LiteralPath $setupPath)) { throw "Setup installer missing: $arch" }
-    $payloadPath = Join-Path $root "installer-payload-v$($Version -replace '\.', '')-notes-$arch"
+    $payloadPath = if ($CandidateSuffix) {
+        Join-Path $root "installer-payload-v$($Version -replace '\.', '')$CandidateSuffix-candidate-$arch"
+    } else {
+        Join-Path $root "installer-payload-v$($Version -replace '\.', '')-notes-$arch"
+    }
     if (-not (Test-Path -LiteralPath $payloadPath -PathType Container)) {
         $payloadPath = Join-Path $root "installer-payload-v$($Version -replace '\.', '')-release-$arch"
     }

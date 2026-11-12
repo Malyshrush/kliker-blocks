@@ -2,6 +2,9 @@ namespace KlikerBlocks;
 
 internal static class Program
 {
+    internal static string? NotePathFromArguments(string[] args) =>
+        args.Length == 1 && Path.GetExtension(args[0]).Equals(".klnote", StringComparison.OrdinalIgnoreCase) ? args[0] : null;
+
     [STAThread]
     private static void Main(string[] args)
     {
@@ -206,6 +209,16 @@ internal static class Program
                 continue; // Recreate the application UI from the saved language before showing any graph.
             }
             UiLanguage.Configure(settings.UiLanguageCode);
+            var notePath = NotePathFromArguments(args);
+            if (notePath is not null)
+            {
+                try { using var note = ScreenNoteForm.LoadFrom(notePath); Application.Run(note); }
+                catch (Exception error)
+                {
+                    MessageBox.Show(error.Message, UiLanguage.Code == "ru" ? "Ошибка открытия заметки" : "Note open error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+                return;
+            }
             var launch = launchHandled ? null : ScenarioScheduling.Resolve(args, settings);
             if (!launchHandled && args.Contains("--scheduled-run") && launch is null) return;
             if (!capabilitiesInitialized)

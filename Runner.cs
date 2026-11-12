@@ -649,6 +649,34 @@ internal sealed class Runner(ProjectModel project, Action<string> log, Action<in
                     current = node.Link("Далее");
                     break;
                 }
+                case "CountTextChars":
+                {
+                    var count = TextFileEditing.Count(node.Value("Text"), node);
+                    _variables.Set(node.Value("Result"), count.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    current = node.Link("Далее");
+                    break;
+                }
+                case "CountFileChars":
+                {
+                    var path = ExternalTools.ResolvePath(node.Value("Path"), _baseDirectory);
+                    var (count, perLine) = TextFileEditing.CountFile(path, node);
+                    if (node.Value("Array").Length > 0) _variables.ReplaceArray(node.Value("Array"), perLine);
+                    _variables.Set(node.Value("Result"), count.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    current = node.Link("Далее");
+                    break;
+                }
+                case "EditFileLine":
+                case "EditFileText":
+                {
+                    var path = ExternalTools.ResolvePath(node.Value("Path"), _baseDirectory);
+                    var output = node.Value("OutputPath");
+                    if (output.Length > 0) output = ExternalTools.ResolvePath(output, _baseDirectory);
+                    var savedPath = TextFileEditing.Edit(path, output, node);
+                    _variables.Set(node.Value("Result"), savedPath);
+                    log((UiLanguage.Code == "ru" ? "Текст сохранён: " : "Text saved: ") + savedPath);
+                    current = node.Link("Далее");
+                    break;
+                }
                 case "TextFile":
                 {
                     var path = ExternalTools.ResolvePath(node.Value("Path"), _baseDirectory);

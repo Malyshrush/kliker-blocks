@@ -53,6 +53,7 @@ internal static class VariableNameRules
 
     public static string DefaultFor(string kind, FieldSpec field)
     {
+        if (kind == "CountFileChars" && field.Key == "Array") return field.Default;
         if (field.Key == "Reference") return "$counter";
         if (field.Default.Contains("$счётчик", StringComparison.Ordinal))
             return field.Default.Replace("$счётчик", "$counter", StringComparison.Ordinal);

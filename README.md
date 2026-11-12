@@ -2,9 +2,11 @@
 
 **Документы проекта:** [все выпущенные возможности](FEATURES.md) · [реестр ошибок и регрессий](BUG_REGISTRY.md) · [правила сопровождения](AGENTS.md).
 
-**Сайт:** https://malyshrush.github.io/kliker-blocks-site/ · **Скачать выпуск:** https://github.com/Malyshrush/kliker-blocks/releases/tag/v1.2.7 · **Вопросы и графы:** https://github.com/Malyshrush/kliker-blocks-site/discussions
+**Сайт:** https://malyshrush.github.io/kliker-blocks-site/ · **Скачать выпуск:** https://github.com/Malyshrush/kliker-blocks/releases/tag/v1.2.8 · **Вопросы и графы:** https://github.com/Malyshrush/kliker-blocks-site/discussions
 
-Текущий выпуск: **1.2.7**.
+Выпуск 1.2.8 исправляет открытие и сохранение состояния заметок и добавляет четыре блока подсчёта символов и редактирования текстовых файлов, включая удаление строк по условиям.
+
+Текущий выпуск: **1.2.8**.
 
 Выпуск **1.2.7** добавляет копирование текста из журнала, выбор путей и вставку переменных в свойствах блоков, а также читаемые подписи на поле.
 
@@ -20,13 +22,13 @@
 
 ![Добровольная поддержка проекта](screenshots/support-ru.png)
 
-Kliker Blocks 1.2.7 — публичная бета визуального редактора сценариев для Windows. При первом запуске, до редактора и демонстрации, выберите английский или русский язык. Выбор сохраняется; сменить язык позже можно в меню «Языки».
+Kliker Blocks 1.2.8 — публичная бета визуального редактора сценариев для Windows. При первом запуске, до редактора и демонстрации, выберите английский или русский язык. Выбор сохраняется; сменить язык позже можно в меню «Языки».
 
 Версия 1.2.4 добавляет отмену и повтор действий в графе, ожидание текста на экране через локальный OCR, извлечение фрагмента регулярным выражением и создание своей подпрограммы из выделенной группы блоков. Установщик больше не подставляет автоматически прежний каталог, который может быть защищён Windows. Версия 1.2.3 добавила OCR для сканированных PDF, GIF и WebP, сворачиваемую панель блоков и улучшенное расположение точек.
 
 ## Установка
 
-В папке выпуска есть установщики `KlikerBlocks-Setup-1.2.7-x64.exe` и `KlikerBlocks-Setup-1.2.7-x86.exe`, а также переносимые ZIP-сборки для обеих архитектур. На 64-разрядной Windows выбирайте x64, на 32-разрядной — x86. Установщик сам выбирает английский или русский язык интерфейса по языку Windows. Можно выбрать папку, значок на рабочем столе, автозапуск и запуск после установки.
+В папке выпуска есть установщики `KlikerBlocks-Setup-1.2.8-x64.exe` и `KlikerBlocks-Setup-1.2.8-x86.exe`, а также переносимые ZIP-сборки для обеих архитектур. На 64-разрядной Windows выбирайте x64, на 32-разрядной — x86. Установщик сам выбирает английский или русский язык интерфейса по языку Windows. Можно выбрать папку, значок на рабочем столе, автозапуск и запуск после установки.
 
 В меню «Сценарий → Автозапуск и расписание сценариев» можно выбрать граф для запуска при входе в Windows и задержку 0–3600 секунд. Расписания Windows запускают сохранённые графы один раз или ежедневно с точностью до секунды, каждый в отдельном экземпляре программы. Для работы пользователь должен войти в Windows. «Справка → Проверить обновления» находит более новый выпуск на GitHub, скачивает установщик для текущей архитектуры, проверяет SHA-256 и создаёт резервную копию открытого графа перед установкой. Новые графы сохраняются в «Документы\Kliker Blocks»; старые .klb и настройки не входят в установочный пакет. «Файл → Проверить совместимость графа» проверяет .klb без его изменения. При наведении на тонкую связь появляется маркер; область её клика увеличена.
 
@@ -83,21 +85,23 @@ Kliker Blocks 1.2.7 — публичная бета визуального ре�
 
 ## English
 
+Release 1.2.8 fixes opening notes and detecting changes, and adds four blocks for counting characters and editing text files, including conditional line deletion.
+
 **1.2.6** adds a Graph library menu with seven examples, on-canvas hints, and test files. It also fixes the screen menu crash after selecting an area. [Download the examples separately](https://malyshrush.github.io/kliker-blocks-site/graphs.html#ready-graphs).
 
 Version **1.2.5** adds a screen menu with a configurable hotkey and user graphs, notes with rich text and images, graph controls for notes, a draggable indicator and deletion of extra Start blocks.
 
-Kliker Blocks 1.2.7 is a public beta visual scenario editor for Windows. Connect blocks for logic, input, desktop control, files, screenshots, speech and logging, or edit the same graph as code. The interface and built-in Help are available in English and Russian. Each block has a copyable example graph.
+Kliker Blocks 1.2.8 is a public beta visual scenario editor for Windows. Connect blocks for logic, input, desktop control, files, screenshots, speech and logging, or edit the same graph as code. The interface and built-in Help are available in English and Russian. Each block has a copyable example graph.
 
 Version 1.2.4 adds graph undo and redo, a block that waits for text found by local OCR, regular-expression text extraction and reusable subroutines created from selected block groups. The installer no longer automatically reuses a previous folder that Windows may protect. Version 1.2.3 added OCR for scanned PDFs, GIF and WebP, a collapsible block palette and improved connector placement.
 
-Current release: **1.2.7**.
+Current release: **1.2.8**.
 
 Version **1.2.7** adds selectable journal text, path and variable pickers in block properties, and improved block captions.
 
 Windows x64 and x86 installers and portable builds are available.
 
-Download the [latest installer or portable build](https://github.com/Malyshrush/kliker-blocks/releases/tag/v1.2.7). Read the [website and searchable block catalog](https://malyshrush.github.io/kliker-blocks-site/), or join the [community discussions](https://github.com/Malyshrush/kliker-blocks-site/discussions) for help, bug reports, ideas and shared graphs.
+Download the [latest installer or portable build](https://github.com/Malyshrush/kliker-blocks/releases/tag/v1.2.8). Read the [website and searchable block catalog](https://malyshrush.github.io/kliker-blocks-site/), or join the [community discussions](https://github.com/Malyshrush/kliker-blocks-site/discussions) for help, bug reports, ideas and shared graphs.
 
 The release folder contains separate x64 and x86 installers and self-contained portable ZIPs. Choose x64 for 64-bit Windows and x86 for 32-bit Windows. Both installers offer a destination folder, desktop shortcut, autostart and launch-after-install options.
 

@@ -12,7 +12,7 @@ internal static class BlockPathPicker
             ("DirectoryList", "Path") or ("FileQueue", "Folder") => Mode.Folder,
             ("DirectoryList", "Pattern") => Mode.FolderWithMask,
             ("LogFile", "Path") => Mode.ProjectFileName,
-            ("Screenshot" or "BufferSave" or "Checkpoint", "Path") or ("CsvTable", "OutputPath") or
+            ("Screenshot" or "BufferSave" or "Checkpoint", "Path") or ("CsvTable" or "EditFileLine" or "EditFileText", "OutputPath") or
                 ("FileQueue", "StatePath") or ("WaitEvent", "Path") => Mode.Save,
             ("Note", "Path") when action == "Сохранить" => Mode.Save,
             ("TextFileArray", "Path") when action == "Записать массив" => Mode.Save,
@@ -22,7 +22,7 @@ internal static class BlockPathPicker
             ("IniFile", "Path") when action == "Записать" => Mode.Save,
             ("OcrImage", "EnginePath") or ("WaitScreenText", "Engine") or ("RunAhk", "Interpreter") or
                 ("Note", "ImagePath") or ("FileQueue", "CurrentFile") => Mode.Open,
-            ("TextFile" or "TextFileArray" or "CsvTable" or "ExcelTable" or "PdfText" or "IniFile" or
+            ("CountFileChars" or "EditFileLine" or "EditFileText" or "TextFile" or "TextFileArray" or "CsvTable" or "ExcelTable" or "PdfText" or "IniFile" or
                 "FindImage" or "BufferFindImage" or "BufferScanImage" or "OcrImage" or "Note" or
                 "RunFile" or "RunAhk" or "RunScenario" or "PlaySound", "Path") => Mode.Open,
             _ => null

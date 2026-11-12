@@ -73,6 +73,9 @@ internal sealed class AboutForm : Form
 
     private static string BuildReleases(Copy copy) =>
         "v" + AppIdentity.VersionLabel + "\r\n" + (UiLanguage.Code == "ru"
+            ? "Добавлены блоки подсчёта символов и редактирования текста в файлах, в том числе удаления строк по условиям. Исправлено открытие заметок и определение несохранённых изменений."
+            : "Added character counting and file text editing blocks, including conditional line deletion. Fixed opening notes and detecting unsaved changes.") +
+        "\r\n\r\nv1.2.7\r\n" + (UiLanguage.Code == "ru"
             ? "Журнал поддерживает выделение текста. В свойствах блоков доступны выбор файлов и папок и вставка переменных текущего графа. Подписи блоков рисуются целыми строками."
             : "The journal supports text selection. Block properties can browse for files and folders and insert variables from the current graph. Block captions render complete lines.") +
         "\r\n\r\nv1.2.6\r\n" + (UiLanguage.Code == "ru"

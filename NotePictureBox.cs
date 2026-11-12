@@ -53,6 +53,7 @@ internal sealed class NotePictureBox : PictureBox
     {
         base.OnMouseUp(e);
         if (_dragStart is null) return;
-        _dragStart = null; Capture = false; ViewChanged?.Invoke(this, EventArgs.Empty);
+        _dragStart = null; Capture = false;
+        if (ViewOffset != _startOffset) ViewChanged?.Invoke(this, EventArgs.Empty);
     }
 }

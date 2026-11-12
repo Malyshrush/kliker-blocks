@@ -4,6 +4,8 @@ namespace KlikerBlocks;
 internal static class MultilineFieldText
 {
     public static bool IsMultiline(string kind, string key) =>
+        (kind is "CountTextChars" or "CountFileChars" or "EditFileLine" or "EditFileText") && key is "Include" or "Exclude" ||
+        (kind is "EditFileLine" or "EditFileText") && key is "Find" or "Replace" ||
         kind == "RadioDialog" && key == "Options" ||
         (kind is "HttpGet" or "HttpPost") && key == "Headers" ||
         kind == "RunScenario" && (key is "Inputs" or "Outputs");

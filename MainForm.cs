@@ -722,7 +722,7 @@ internal sealed class MainForm : Form
         "IfExpression" => "Условия «Если» и поиск",
         "IfMoved" or "IfPixel" or "WaitPixel" or "IfKeyDown" or "FindColor" or "FindImage" or "BufferFindColor" or "BufferFindImage" or "IfWindow" => "Условия «Если» и поиск",
         "WatchCursor" or "MoveCursor" or "MoveRelative" or "Click" or "MouseButton" or "Wheel" or "Key" or "KeyState" or "VirtualKey" or "TypeText" or "ClipboardSet" or "InputGroup" => "Мышь и клавиатура",
-        "ClipboardGet" or "ExtractText" or "TextFile" or "TextFileArray" or "CsvTable" or "ExcelTable" or "PdfText" or "FileQueue" or "Checkpoint" or "IniFile" or "DirectoryList" or "HttpGet" or "HttpPost" or "JsonValue" or
+        "CountTextChars" or "CountFileChars" or "EditFileLine" or "EditFileText" or "ClipboardGet" or "ExtractText" or "TextFile" or "TextFileArray" or "CsvTable" or "ExcelTable" or "PdfText" or "FileQueue" or "Checkpoint" or "IniFile" or "DirectoryList" or "HttpGet" or "HttpPost" or "JsonValue" or
         "TranslateText" or "DetectLanguage" or "LanguagePair" or "TranslateArray" => "Данные и файлы",
         "Screenshot" or "Note" or "OcrImage" or "WaitScreenText" or "BufferCapture" or "BufferPixel" or "BufferCount" or "BufferHash" or "BufferReplace" or "BufferScanColor" or "BufferScanImage" or "BufferSave" or "MoveFound" or "ActivateWindow" or "MoveWindow" or "WindowFind" or "WindowInfo" or "WindowAction" or "ElementAtPoint" or "ElementInfo" or "ElementSetText" or "UiWait" or "UiAction" or "MessageSend" or "MessageReceive" => "Экран и окна",
         _ => "Внешние программы"

@@ -32,6 +32,7 @@ internal static class SelfTest
     public static void Run()
     {
         UiLanguage.Configure("ru");
+        TextFileEditingSmoke.Run();
         var assemblyVersion = Assembly.GetExecutingAssembly().GetName().Version!;
         var expectedTitle = AppIdentity.TitleFor(assemblyVersion);
         Assert(MainForm.AppTitle == expectedTitle && AppIdentity.Title == expectedTitle &&
@@ -46,6 +47,10 @@ internal static class SelfTest
         Assert(AutostartSettings.CommandFor(@"C:\Program Files\Kliker Blocks\Kliker.Blocks.exe") ==
             "\"C:\\Program Files\\Kliker Blocks\\Kliker.Blocks.exe\" --windows-startup",
             "autostart command quotes executable paths containing spaces");
+        Assert(Program.NotePathFromArguments([@"C:\My Notes\Note.KLNOTE"]) == @"C:\My Notes\Note.KLNOTE" &&
+            Program.NotePathFromArguments(["--scheduled-run", "test.klnote"]) is null &&
+            Program.NotePathFromArguments(["graph.klb"]) is null,
+            "Explorer note launch accepts a quoted Unicode or spaced path without affecting other startup modes");
         var extractionStart = BlockCatalog.Create("Start", 0, 0);
         var extraStart = BlockCatalog.Create("Start", 100, 0);
         var deletableBlock = BlockCatalog.Create("Log", 200, 0);
@@ -87,10 +92,18 @@ internal static class SelfTest
             var previousContext = SynchronizationContext.Current;
             try
             {
-                using (var note = new ScreenNoteForm("Первая заметка")) note.SaveTo(savedNote);
+                using (var note = new ScreenNoteForm("Первая заметка"))
+                {
+                    note.SetPlacement(100, 100, 440, 360);
+                    note.SaveTo(savedNote);
+                    Assert(!note.HasUnsavedChanges() && note.Text.Contains("test"), "saved note is clean and shows its file name");
+                    note.SetContents("Добавить", "!", "Не менять", "");
+                    Assert(note.HasUnsavedChanges(), "editing a saved note requires saving");
+                }
                 using (var note = ScreenNoteForm.LoadFrom(savedNote))
                 {
                     Assert(note.GetNoteText() == "Первая заметка", "saved note restores its Unicode text");
+                    Assert(!note.HasUnsavedChanges() && note.Size == new Size(440, 360) && note.Location == new Point(100, 100), "opened note restores saved placement and starts clean");
                     note.SetContents("Добавить", "!", "Не менять", ""); note.SaveTo(savedNote);
                 }
                 using (var note = ScreenNoteForm.LoadFrom(savedNote)) Assert(note.GetNoteText() == "Первая заметка!", "saved note edits persist");
@@ -118,10 +131,15 @@ internal static class SelfTest
                     var down = typeof(NotePictureBox).GetMethod("OnMouseDown", BindingFlags.Instance | BindingFlags.NonPublic)!;
                     var move = typeof(NotePictureBox).GetMethod("OnMouseMove", BindingFlags.Instance | BindingFlags.NonPublic)!;
                     var up = typeof(NotePictureBox).GetMethod("OnMouseUp", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                    note.SaveTo(sectionNote);
+                    down.Invoke(picture, [new MouseEventArgs(MouseButtons.Left, 1, 10, 10, 0)]);
+                    up.Invoke(picture, [new MouseEventArgs(MouseButtons.Left, 1, 10, 10, 0)]);
+                    Assert(!note.HasUnsavedChanges(), "clicking the image without moving leaves the saved note clean");
                     down.Invoke(picture, [new MouseEventArgs(MouseButtons.Left, 1, 10, 10, 0)]);
                     move.Invoke(picture, [new MouseEventArgs(MouseButtons.Left, 0, 30, 40, 0)]);
                     up.Invoke(picture, [new MouseEventArgs(MouseButtons.Left, 1, 30, 40, 0)]);
                     Assert(picture.ViewOffset == new PointF(20f, 30f), "dragging changes the note image position");
+                    Assert(note.HasUnsavedChanges(), "moving an image changes the saved note state");
                     picture.SetView(1.5f, 20f, -10f);
                     note.SaveTo(sectionNote);
                 }
