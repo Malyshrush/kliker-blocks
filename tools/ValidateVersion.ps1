@@ -13,6 +13,11 @@ if (-not $installer.Contains("#define AppVersion `"$Version`"")) { throw 'Instal
 if (-not $ruHelp.Contains('AppIdentity.VersionLabel') -or
     -not $enHelp.Contains('AppIdentity.VersionLabel')) { throw 'Built-in help is not tied to assembly version.' }
 if (-not (Test-Path -LiteralPath $site)) { throw 'Website source is missing.' }
+$node = Get-Command node -ErrorAction SilentlyContinue
+if (-not $node) { throw 'Node.js is required to validate website localization.' }
+& $node.Source (Join-Path $PSScriptRoot 'ValidateWebsiteLocalization.js')
+if ($LASTEXITCODE -ne 0) { throw 'Website localization validation failed.' }
+
 $html = Get-Content -LiteralPath $site -Raw
 $releaseVersion = $Version
 if ($LocalCandidate) {
