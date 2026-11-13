@@ -60,6 +60,7 @@ internal sealed class AboutForm : Form
         result.AppendLine("• " + (UiLanguage.Code == "ru" ? "Экранное меню: текст, речь, снимки, OCR, заметки и пользовательские графы. В заметках доступны форматирование текста и масштабирование изображений. Индикатор перетаскивается мышью." : "Screen menu: text, speech, screenshots, OCR, notes and user graphs. Notes support text formatting and image zoom. Drag the scenario indicator with the mouse."));
         result.AppendLine("• " + (UiLanguage.Code == "ru" ? "База графов: семь готовых сценариев с подсказками и рабочими копиями." : "Graph library: seven examples with on-canvas hints and working copies."));
         result.AppendLine("• " + (UiLanguage.Code == "ru" ? "Текст журнала можно выделять и копировать. В свойствах блоков есть выбор пути и вставка переменных графа." : "Select and copy journal text. Block properties offer path selection and graph variable insertion."));
+        result.AppendLine("• " + (UiLanguage.Code == "ru" ? "Компактное меню и адаптивное главное окно сохраняют доступ к свойствам и журналу." : "A compact menu and adaptive main window keep properties and the journal accessible."));
         result.AppendLine().AppendLine(copy.BlocksHeading + " (" + BlockCatalog.All.Length + ")");
         foreach (var group in BlockCatalog.All.GroupBy(spec => MainForm.CategoryFor(spec.Kind))
                      .OrderBy(group => MainForm.CategoryOrder(group.Key)))
@@ -73,6 +74,9 @@ internal sealed class AboutForm : Form
 
     private static string BuildReleases(Copy copy) =>
         "v" + AppIdentity.VersionLabel + "\r\n" + (UiLanguage.Code == "ru"
+            ? "Верхнее меню сгруппировано, а свойства блока и кнопка журнала остаются доступны при уменьшении окна."
+            : "The top menu is grouped, and block properties and the journal button remain accessible in narrower windows.") +
+        "\r\n\r\nv1.2.9\r\n" + (UiLanguage.Code == "ru"
             ? "Добавлен редактор снимков: изменение границ, рисунки, фигуры, линии по точкам, ввод текста на снимке и сохранение PNG."
             : "Added a screenshot editor with resizable selection, drawing, shapes, point-based lines, inline text and PNG saving.") +
         "\r\n\r\nv1.2.8\r\n" + (UiLanguage.Code == "ru"

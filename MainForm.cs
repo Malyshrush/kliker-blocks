@@ -127,13 +127,14 @@ internal sealed class MainForm : Form
 
         var root = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 4, ColumnCount = 1 };
         _rootLayout = root;
+        root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 160));
         Controls.Add(root);
 
-        var menu = new MenuStrip { Dock = DockStyle.Fill, BackColor = Color.FromArgb(247, 249, 252),
+        var menu = new MenuStrip { Dock = DockStyle.Fill, AutoSize = false, CanOverflow = true, BackColor = Color.FromArgb(247, 249, 252),
             GripStyle = ToolStripGripStyle.Hidden, Padding = new Padding(8, 4, 8, 4),
             Renderer = new KlikerMenuRenderer() };
         MainMenuStrip = menu;
@@ -235,16 +236,19 @@ internal sealed class MainForm : Form
         _updateBadge.Click += async (_, _) => await CheckForUpdates(true);
         AddMenuItem(helpMenu, "Поддержать проект", (_, _) => new SupportForm().Show(this));
         AddMenuItem(helpMenu, "О программе…", (_, _) => new AboutForm().Show(this));
-        var showcaseMenu = new ToolStripMenuItem(UiLanguage.T("Что я умею")) { Tag = "featured" };
-        showcaseMenu.Click += (_, _) => ShowShowcase();
-        var websiteMenu = new ToolStripMenuItem(UiLanguage.T("Сайт")) { Tag = "featured" };
-        websiteMenu.Click += (_, _) => WebsiteLinks.Open(this);
-        var supportMenu = new ToolStripMenuItem(UiLanguage.T("Поддержать проект"));
-        supportMenu.Click += (_, _) => new SupportForm().Show(this);
-        menu.Items.AddRange([fileMenu, editorMenu, blocksMenu, CreateGraphLibraryMenu(), captureMenu, macroMenu, scenarioMenu, mouseMenu, languagesMenu, showcaseMenu, websiteMenu, supportMenu, _updateBadge, helpMenu]);
+        AddMenuItem(helpMenu, UiLanguage.Code == "ru" ? "Что я умею" : "What I can do", (_, _) => ShowShowcase());
+        helpMenu.DropDownItems.Add(_updateBadge);
+        var toolsMenu = new ToolStripMenuItem(UiLanguage.Code == "ru" ? "Инструменты" : "Tools");
+        toolsMenu.DropDownItems.Add(captureMenu);
+        toolsMenu.DropDownItems.Add(macroMenu);
+        var settingsMenu = new ToolStripMenuItem(UiLanguage.Code == "ru" ? "Настройки" : "Settings");
+        settingsMenu.DropDownItems.Add(mouseMenu);
+        settingsMenu.DropDownItems.Add(languagesMenu);
+        menu.Items.AddRange([fileMenu, editorMenu, blocksMenu, CreateGraphLibraryMenu(), scenarioMenu, toolsMenu, settingsMenu, helpMenu]);
         foreach (ToolStripMenuItem item in menu.Items)
         {
-            item.Padding = new Padding(9, 5, 9, 5);
+            item.Overflow = ToolStripItemOverflow.AsNeeded;
+            item.Padding = new Padding(8, 5, 8, 5);
             item.Font = new Font("Segoe UI", 9.5f, FontStyle.Bold);
             item.ForeColor = Color.FromArgb(29, 51, 77);
         }

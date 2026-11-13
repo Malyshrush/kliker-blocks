@@ -52,7 +52,7 @@ internal sealed class FirstRunLanguageForm : Form
         choices.Controls.Add(russian, 1, 0);
         layout.Controls.Add(choices, 0, 2);
         layout.Controls.Add(new Label { Dock = DockStyle.Fill,
-            Text = "You can change this later in Languages.\nПозже язык можно сменить в меню «Языки».",
+            Text = "You can change this later in Settings → Languages.\nПозже язык можно сменить в меню «Настройки → Языки».",
             ForeColor = Color.FromArgb(86, 101, 120),
             Font = new Font("Segoe UI", 9.5f), TextAlign = ContentAlignment.MiddleCenter }, 0, 3);
     }
