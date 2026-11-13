@@ -1147,15 +1147,23 @@ internal sealed class MainForm : Form
         {
             Hide();
             await Task.Delay(150);
-            using var overlay = new CaptureOverlay();
+            var desktop = SystemInformation.VirtualScreen;
+            if ((long)desktop.Width * desktop.Height > 30_000_000)
+                throw new InvalidOperationException(UiLanguage.Code == "ru"
+                    ? "Виртуальный рабочий стол слишком велик для редактора снимков (максимум 30 млн пикселей)."
+                    : "The virtual desktop is too large for the screenshot editor (30 million pixels maximum).");
+            using var background = ScreenTools.Capture(desktop);
+            using var overlay = new CaptureOverlay(background: background);
             if (overlay.ShowDialog() != DialogResult.OK) return;
-            await Task.Delay(150);
+            using var editor = new ScreenshotEditorForm(background, desktop, overlay.SelectedArea, overlay.Shape);
+            if (editor.ShowDialog() != DialogResult.OK) return;
+            using var image = editor.RenderImage();
             var baseDirectory = _file == null ? AppContext.BaseDirectory : Path.GetDirectoryName(_file)!;
-            var asset = CaptureService.Save(overlay.SelectedArea, overlay.Shape, overlay.RequestedName, _settings, baseDirectory);
+            var asset = CaptureService.SaveEdited(editor.SelectedArea, overlay.Shape, overlay.RequestedName, _settings, baseDirectory, image);
             _project.Captures.Add(asset);
             AppendLog("Снимок сохранён: " + asset.Path);
         }
-        catch (Exception error) { MessageBox.Show(error.Message, "Ошибка снимка"); }
+        catch (Exception error) { MessageBox.Show(error.Message, UiLanguage.Code == "ru" ? "Ошибка снимка" : "Screenshot error"); }
         finally { Show(); Activate(); _captureActive = false; }
     }
 

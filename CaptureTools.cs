@@ -151,14 +151,16 @@ internal sealed class CaptureOverlay : Form
 {
     private readonly FlowLayoutPanel _bar = new() { Dock = DockStyle.Top, Height = 52, BackColor = Color.FromArgb(35, 42, 55) };
     private readonly TextBox _name = new() { Width = 250, PlaceholderText = "Имя (пусто = автоматически)" };
+    private readonly Bitmap? _background;
     private Point? _start;
     private Point _end;
     public string Shape { get; private set; } = "Прямоугольник";
     public string RequestedName => _name.Text.Trim();
     public Rectangle SelectedArea { get; private set; }
 
-    public CaptureOverlay(bool rectangleOnly = false)
+    public CaptureOverlay(bool rectangleOnly = false, Bitmap? background = null)
     {
+        _background = background;
         Text = UiLanguage.T("Kliker Blocks — выбор области");
         FormBorderStyle = FormBorderStyle.None;
         StartPosition = FormStartPosition.Manual;
@@ -168,7 +170,7 @@ internal sealed class CaptureOverlay : Form
         KeyPreview = true;
         DoubleBuffered = true;
         BackColor = Color.FromArgb(30, 35, 45);
-        Opacity = 0.68;
+        Opacity = background is null ? 0.68 : 1;
         Cursor = Cursors.Cross;
         Controls.Add(_bar);
         foreach (var shape in rectangleOnly ? new[] { "Прямоугольник" } : new[] { "Прямоугольник", "Квадрат", "Круг" })
@@ -225,6 +227,29 @@ internal sealed class CaptureOverlay : Form
     protected override void OnPaint(PaintEventArgs e)
     {
         base.OnPaint(e);
+        if (_background is not null)
+        {
+            e.Graphics.DrawImageUnscaled(_background, 0, 0);
+            using var shade = new SolidBrush(Color.FromArgb(145, Color.Black));
+            e.Graphics.FillRectangle(shade, ClientRectangle);
+            if (_start is not null)
+            {
+                var state = e.Graphics.Save();
+                var selected = Selection();
+                if (selected.Width > 0 && selected.Height > 0)
+                {
+                    if (Shape == "Круг")
+                    {
+                        using var circle = new GraphicsPath();
+                        circle.AddEllipse(selected);
+                        e.Graphics.SetClip(circle);
+                    }
+                    else e.Graphics.SetClip(selected);
+                    e.Graphics.DrawImageUnscaled(_background, 0, 0);
+                }
+                e.Graphics.Restore(state);
+            }
+        }
         if (_start == null) return;
         var area = Selection();
         using var pen = new Pen(Color.DeepSkyBlue, 3) { DashStyle = DashStyle.Dash };
@@ -254,32 +279,53 @@ internal static class CaptureService
 {
     public static CaptureAsset Save(Rectangle area, string shape, string name, AppSettings settings, string baseDirectory)
     {
+        using var screenshot = ScreenTools.Capture(area);
+        if (shape != "Круг") return SaveEdited(area, shape, name, settings, baseDirectory, screenshot);
+        using var mask = new Bitmap(screenshot.Width, screenshot.Height, PixelFormat.Format32bppArgb);
+        using (var graphics = Graphics.FromImage(mask))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            using var region = new GraphicsPath();
+            region.AddEllipse(0, 0, screenshot.Width - 1, screenshot.Height - 1);
+            graphics.SetClip(region);
+            graphics.DrawImageUnscaled(screenshot, 0, 0);
+        }
+        return SaveEdited(area, shape, name, settings, baseDirectory, mask);
+    }
+
+    public static CaptureAsset SaveEdited(Rectangle area, string shape, string name, AppSettings settings,
+        string baseDirectory, Bitmap screenshot)
+    {
+        if (screenshot.Width != area.Width || screenshot.Height != area.Height)
+            throw new ArgumentException(UiLanguage.Code == "ru" ? "Размер снимка не совпадает с областью." : "Screenshot dimensions do not match the selected area.");
         var folder = ExternalTools.ResolvePath(settings.ScreenshotFolder, baseDirectory);
         Directory.CreateDirectory(folder);
         var stem = string.IsNullOrWhiteSpace(name)
             ? settings.ScreenshotPrefix + "_" + DateTime.Now.ToString("yyyyMMdd_HHmmss_fff")
             : Path.GetFileNameWithoutExtension(name);
         if (string.IsNullOrWhiteSpace(stem) || stem.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
-            throw new ArgumentException("Недопустимое имя снимка.");
-        var path = Path.Combine(folder, stem + ".png");
-        for (var index = 2; File.Exists(path); index++) path = Path.Combine(folder, $"{stem}_{index}.png");
-        using var screenshot = ScreenTools.Capture(area);
-        if (shape == "Круг")
+            throw new ArgumentException(UiLanguage.Code == "ru" ? "Недопустимое имя снимка." : "Invalid screenshot name.");
+        var temporary = Path.Combine(folder, ".kliker-capture-" + Guid.NewGuid().ToString("N") + ".tmp");
+        try
         {
-            using var mask = new Bitmap(screenshot.Width, screenshot.Height, PixelFormat.Format32bppArgb);
-            using (var graphics = Graphics.FromImage(mask))
+            using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             {
-                graphics.Clear(Color.Transparent);
-                graphics.SmoothingMode = SmoothingMode.AntiAlias;
-                using var region = new GraphicsPath();
-                region.AddEllipse(0, 0, screenshot.Width - 1, screenshot.Height - 1);
-                graphics.SetClip(region);
-                graphics.DrawImageUnscaled(screenshot, 0, 0);
+                screenshot.Save(output, ImageFormat.Png);
+                output.Flush(true);
             }
-            mask.Save(path, ImageFormat.Png);
+            for (var index = 1; ; index++)
+            {
+                var path = Path.Combine(folder, stem + (index == 1 ? "" : $"_{index}") + ".png");
+                try
+                {
+                    File.Move(temporary, path);
+                    return new CaptureAsset { Name = Path.GetFileNameWithoutExtension(path), Path = path, Shape = shape,
+                        X = area.X, Y = area.Y, Width = area.Width, Height = area.Height };
+                }
+                catch (IOException) when (File.Exists(path)) { }
+            }
         }
-        else screenshot.Save(path, ImageFormat.Png);
-        return new CaptureAsset { Name = Path.GetFileNameWithoutExtension(path), Path = path, Shape = shape,
-            X = area.X, Y = area.Y, Width = area.Width, Height = area.Height };
+        finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
 }

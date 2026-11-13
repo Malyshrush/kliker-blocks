@@ -73,6 +73,9 @@ internal sealed class AboutForm : Form
 
     private static string BuildReleases(Copy copy) =>
         "v" + AppIdentity.VersionLabel + "\r\n" + (UiLanguage.Code == "ru"
+            ? "Добавлен редактор снимков: изменение границ, рисунки, фигуры, линии по точкам, ввод текста на снимке и сохранение PNG."
+            : "Added a screenshot editor with resizable selection, drawing, shapes, point-based lines, inline text and PNG saving.") +
+        "\r\n\r\nv1.2.8\r\n" + (UiLanguage.Code == "ru"
             ? "Добавлены блоки подсчёта символов и редактирования текста в файлах, в том числе удаления строк по условиям. Исправлено открытие заметок и определение несохранённых изменений."
             : "Added character counting and file text editing blocks, including conditional line deletion. Fixed opening notes and detecting unsaved changes.") +
         "\r\n\r\nv1.2.7\r\n" + (UiLanguage.Code == "ru"

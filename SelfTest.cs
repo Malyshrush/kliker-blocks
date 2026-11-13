@@ -33,6 +33,7 @@ internal static class SelfTest
     {
         UiLanguage.Configure("ru");
         TextFileEditingSmoke.Run();
+        ScreenshotEditorSmoke.Run();
         var assemblyVersion = Assembly.GetExecutingAssembly().GetName().Version!;
         var expectedTitle = AppIdentity.TitleFor(assemblyVersion);
         Assert(MainForm.AppTitle == expectedTitle && AppIdentity.Title == expectedTitle &&

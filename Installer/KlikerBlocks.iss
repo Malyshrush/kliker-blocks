@@ -1,4 +1,4 @@
-#define AppVersion "1.2.8"
+#define AppVersion "1.2.9"
 #define AppName "Kliker Blocks"
 #ifndef SmokeTest
   #define SmokeTest "0"
@@ -34,10 +34,10 @@ DefaultGroupName=Kliker Blocks
 #endif
 DisableProgramGroupPage=yes
 #if SmokeTest == "1"
-  OutputDir=..\obj\install-smoke-v128-text
+  OutputDir=..\obj\install-smoke-v129-shift
 OutputBaseFilename=KlikerBlocks-Smoke-{#AppVersion}-{#BuildArch}
 #else
-  OutputDir=..\publish-v128-text
+  OutputDir=..\publish-v129-shift
 OutputBaseFilename=KlikerBlocks-Setup-{#AppVersion}-{#BuildArch}
 #endif
 SetupIconFile=..\Assets\Kliker.ico
@@ -78,7 +78,7 @@ Name: "autostart"; Description: "{cm:Autostart}"; Flags: unchecked
 Name: "taskbartip"; Description: "{cm:TaskbarTip}"; Flags: unchecked
 
 [Files]
-Source: "..\installer-payload-v128-text-candidate-{#BuildArch}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\installer-payload-v129-shift-candidate-{#BuildArch}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 #if SmokeTest == "1"
@@ -108,3 +108,4 @@ begin
   if (CurStep = ssPostInstall) and WizardIsTaskSelected('taskbartip') then
     MsgBox(ExpandConstant('{cm:TaskbarInstructions}'), mbInformation, MB_OK);
 end;
+
