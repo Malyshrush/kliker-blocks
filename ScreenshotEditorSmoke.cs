@@ -14,16 +14,81 @@ internal static class ScreenshotEditorSmoke
         var desktop = new Rectangle(-200, -100, 400, 300);
         using var background = new Bitmap(400, 300, PixelFormat.Format32bppArgb);
         using (var graphics = Graphics.FromImage(background)) graphics.Clear(Color.White);
+        foreach (var format in new[] { ZXing.BarcodeFormat.QR_CODE, ZXing.BarcodeFormat.CODE_128 })
+        {
+            var code = new ZXing.MultiFormatWriter().encode("KLIKER123", format, 240, 120);
+            using var barcode = new Bitmap(code.Width, code.Height);
+            for (int y = 0; y < code.Height; y++)
+            for (int x = 0; x < code.Width; x++)
+                barcode.SetPixel(x, y, code[x, y] ? Color.Black : Color.White);
+            Check(BarcodeTools.Read(barcode) == "KLIKER123", "QR and barcode decoding");
+        }
+        using (var before = new Bitmap(2, 2))
+        using (var after = new Bitmap(2, 2))
+        {
+            before.SetPixel(0, 0, Color.White);
+            after.SetPixel(0, 0, Color.White);
+            after.SetPixel(1, 1, Color.Blue);
+            using var difference = ScreenshotComparison.Compare(before, after);
+            Check(difference.GetPixel(0, 0).ToArgb() == Color.White.ToArgb() &&
+                  difference.GetPixel(1, 1).ToArgb() == Color.Red.ToArgb(), "comparison highlights changed pixels");
+        }
         var selected = new Rectangle(-180, -80, 120, 80);
         using var editor = new ScreenshotEditorForm(background, desktop, selected, "Прямоугольник");
-        var tools = editor.Controls.OfType<FlowLayoutPanel>().Single();
+        using (var fillEditor = new ScreenshotEditorForm(background, desktop, selected, "Прямоугольник"))
+        {
+            var privateFlags = BindingFlags.Instance | BindingFlags.NonPublic;
+            typeof(ScreenshotEditorForm).GetField("_tool", privateFlags)!.SetValue(fillEditor, ScreenshotEditorForm.DrawingTool.Rectangle);
+            typeof(ScreenshotEditorForm).GetField("_fillColor", privateFlags)!.SetValue(fillEditor, Color.Blue);
+            ((NumericUpDown)typeof(ScreenshotEditorForm).GetField("_fillOpacity", privateFlags)!.GetValue(fillEditor)!).Value = 50;
+            void Draw(int x1, int y1, int x2, int y2)
+            {
+                foreach (var (name, x, y) in new[] { ("OnMouseDown", x1, y1), ("OnMouseMove", x2, y2), ("OnMouseUp", x2, y2) })
+                    typeof(ScreenshotEditorForm).GetMethod(name, privateFlags)!.Invoke(fillEditor, [new MouseEventArgs(MouseButtons.Left, 1, x, y, 0)]);
+            }
+            Draw(30, 30, 90, 70);
+            using (var rendered = fillEditor.RenderImage())
+            {
+                var pixel = rendered.GetPixel(40, 30);
+                Check(pixel.B > 240 && pixel.R is > 110 and < 150 && pixel.G is > 110 and < 150, "semi-transparent fill is composited into the saved image");
+            }
+            typeof(ScreenshotEditorForm).GetField("_tool", privateFlags)!.SetValue(fillEditor, ScreenshotEditorForm.DrawingTool.Redact);
+            Draw(35, 35, 75, 60);
+            using var covered = fillEditor.RenderImage();
+            var coverPixel = covered.GetPixel(30, 25);
+            Check(coverPixel.R > 240 && coverPixel.G < 10 && coverPixel.B < 10 && coverPixel.A == 255, "redaction replaces pixels with opaque color");
+        }
+        var tools = editor.Controls.OfType<FlowLayoutPanel>().Single(panel => panel.FlowDirection == FlowDirection.LeftToRight);
+        var actions = editor.Controls.OfType<FlowLayoutPanel>().Single(panel => panel.FlowDirection == FlowDirection.TopDown);
+        var actionButtons = actions.Controls.OfType<Button>().ToArray();
+        Check(actions.Left >= selected.Right - desktop.X && actionButtons.Length == 5 &&
+              actionButtons.Select(button => button.BackColor).Distinct().Count() == 5 &&
+              actionButtons.All(button => button.Cursor == Cursors.Arrow),
+            "commands form a colored vertical toolbar to the right of the selection");
+        Check(actionButtons.Select(button => button.Text).SequenceEqual(new[] { "↶", "⇅", "📌", "💾", "✕" }),
+            "commands use icons");
+        using (var wide = new Bitmap(900, 300))
+        using (var wideEditor = new ScreenshotEditorForm(wide, new Rectangle(0, 0, 900, 300),
+                   new Rectangle(80, 20, 720, 210), "Прямоугольник"))
+        {
+            var wideTools = wideEditor.Controls.OfType<FlowLayoutPanel>().Single(panel => panel.FlowDirection == FlowDirection.LeftToRight);
+            Check(wideTools.Height == wideTools.Padding.Vertical + wideTools.Controls.OfType<Button>().Max(button => button.Height + button.Margin.Vertical),
+                "the drawing toolbar has no empty row when its buttons fit on one line");
+        }
+        using (var onRight = new ScreenshotEditorForm(background, desktop,
+                   new Rectangle(desktop.Right - 130, desktop.Top + 20, 120, 200), "Прямоугольник"))
+        {
+            var leftActions = onRight.Controls.OfType<FlowLayoutPanel>().Single(panel => panel.FlowDirection == FlowDirection.TopDown);
+            Check(leftActions.Right <= onRight.SelectedArea.Left - desktop.X && onRight.ClientRectangle.Contains(leftActions.Bounds),
+                "the command toolbar switches to the left near the right screen edge");
+        }
         var linesMenu = tools.Controls.OfType<Button>().Single(button => button.AccessibleName == "Линии");
         var arrowsMenu = tools.Controls.OfType<Button>().Single(button => button.AccessibleName == "Стрелки");
         var shapesMenu = tools.Controls.OfType<Button>().Single(button => button.AccessibleName == "Фигуры");
         Check(linesMenu.ContextMenuStrip?.Items.Count == 3 && arrowsMenu.ContextMenuStrip?.Items.Count == 4 &&
               shapesMenu.ContextMenuStrip?.Items.Count == 6, "tools are grouped into compact menus");
         shapesMenu.ContextMenuStrip!.Items.OfType<ToolStripMenuItem>().Single(item => item.Text?.Contains("Звезда") == true).PerformClick();
-        Check(shapesMenu.AccessibleName == "Фигуры: Звезда" && shapesMenu.BackColor != Color.WhiteSmoke,
+        Check(shapesMenu.AccessibleName == "Фигуры: Звезда" && shapesMenu.FlatAppearance.BorderSize > linesMenu.FlatAppearance.BorderSize,
             "chosen shape updates the group button and highlight");
         typeof(ScreenshotEditorForm).GetField("_tool", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(editor, ScreenshotEditorForm.DrawingTool.Selection);
@@ -32,6 +97,17 @@ internal static class ScreenshotEditorSmoke
         {
             var method = typeof(ScreenshotEditorForm).GetMethod(name, flags)!;
             method.Invoke(editor, [new MouseEventArgs(MouseButtons.Left, 1, x, y, 0)]);
+        }
+        foreach (var (point, cursor) in new[]
+        {
+            (new Point(40, 20), Cursors.SizeNS), (new Point(40, 40), Cursors.SizeAll),
+            (new Point(5, 5), Cursors.Default)
+        })
+        {
+            Mouse("OnMouseMove", point.X, point.Y);
+            Check(editor.Cursor == cursor, "canvas cursor follows the selection hit area");
+            Check(tools.Cursor == Cursors.Arrow && tools.Controls.OfType<Button>().All(button => button.Cursor == Cursors.Arrow),
+                "toolbar commands retain the arrow cursor after a canvas cursor change");
         }
         Mouse("OnMouseDown", 140, 60);
         Mouse("OnMouseMove", 180, 60);
@@ -186,12 +262,12 @@ internal static class ScreenshotEditorSmoke
         try
         {
             using var english = new ScreenshotEditorForm(background, desktop, selected, "Прямоугольник");
-            var bar = english.Controls.OfType<FlowLayoutPanel>().Single();
-            Check(bar.Controls.OfType<Button>().Any(button => button.AccessibleName == "Text") &&
-                  bar.Controls.OfType<Button>().Any(button => button.AccessibleName == "Save screenshot") &&
-                  bar.Controls.OfType<Button>().Any(button => button.AccessibleName == "Lines") &&
-                  bar.Controls.OfType<Button>().Any(button => button.AccessibleName == "Arrows") &&
-                  bar.Controls.OfType<Button>().Any(button => button.AccessibleName == "Shapes"),
+            var buttons = english.Controls.OfType<FlowLayoutPanel>().SelectMany(panel => panel.Controls.OfType<Button>());
+            Check(buttons.Any(button => button.AccessibleName == "Text") &&
+                  buttons.Any(button => button.AccessibleName == "Save screenshot") &&
+                  buttons.Any(button => button.AccessibleName == "Lines") &&
+                  buttons.Any(button => button.AccessibleName == "Arrows") &&
+                  buttons.Any(button => button.AccessibleName == "Shapes"),
                 "English screenshot editor tools are localized");
             typeof(ScreenshotEditorForm).GetField("_tool", flags)!.SetValue(english, ScreenshotEditorForm.DrawingTool.Text);
             mouseDown.Invoke(english, [new MouseEventArgs(MouseButtons.Left, 1, 30, 35, 0)]);

@@ -4,8 +4,8 @@ $root = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 $site = Join-Path (Split-Path $root -Parent) 'site\docs\index.html'
 $project = Get-Content -LiteralPath (Join-Path $root 'KLIKER Blocks.csproj') -Raw
 $installer = Get-Content -LiteralPath (Join-Path $root 'Installer\KlikerBlocks.iss') -Raw
-$readme = Get-Content -LiteralPath (Join-Path $root 'README.md') -Raw
-$bugs = Get-Content -LiteralPath (Join-Path $root 'BUG_REGISTRY.md') -Raw
+$readme = Get-Content -LiteralPath (Join-Path $root 'README.md') -Raw -Encoding UTF8
+$bugs = Get-Content -LiteralPath (Join-Path $root 'BUG_REGISTRY.md') -Raw -Encoding UTF8
 $ruHelp = Get-Content -LiteralPath (Join-Path $root 'AppHelp.cs') -Raw
 $enHelp = Get-Content -LiteralPath (Join-Path $root 'EnglishHelp.cs') -Raw
 if (-not $project.Contains("<Version>$Version</Version>")) { throw 'Project version mismatch.' }
@@ -21,10 +21,10 @@ if ($LASTEXITCODE -ne 0) { throw 'Website localization validation failed.' }
 $html = Get-Content -LiteralPath $site -Raw
 $releaseVersion = $Version
 if ($LocalCandidate) {
-    $publishedMatch = [regex]::Match($bugs, 'Последний выпущенный срез:\s*\*\*v(?<version>\d+\.\d+\.\d+)\*\*')
+    $publishedMatch = [regex]::Match($bugs, '\*\*v(?<version>\d+\.\d+\.\d+)\*\*')
     if (-not $publishedMatch.Success) { throw 'Could not determine the last published version from BUG_REGISTRY.md.' }
     $releaseVersion = $publishedMatch.Groups['version'].Value
-    if ($readme -notmatch "(?i)локальный кандидат.*$([regex]::Escape($Version))" -or
+    if ($readme -notmatch "(?i)\u043b\u043e\u043a\u0430\u043b\u044c\u043d\u044b\u0439 \u043a\u0430\u043d\u0434\u0438\u0434\u0430\u0442.*$([regex]::Escape($Version))" -or
         $readme -notmatch "(?i)Local candidate.*$([regex]::Escape($Version))") {
         throw 'README must identify the RU/EN local candidate.'
     }

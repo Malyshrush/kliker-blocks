@@ -161,6 +161,7 @@ internal sealed class MainForm : Form
         var captureMenu = new ToolStripMenuItem("Захват");
         AddMenuItem(captureMenu, "Сохранить точку", (_, _) => CapturePoint());
         AddMenuItem(captureMenu, "Снимок области…", async (_, _) => await CaptureScreenAsync());
+        AddMenuItem(captureMenu, UiLanguage.Code == "ru" ? "Сравнить снимки…" : "Compare screenshots…", (_, _) => ScreenshotComparison.Show(this));
         AddMenuItem(captureMenu, "Библиотека…", (_, _) => ShowLibrary());
         AddMenuItem(captureMenu, "Горячие клавиши…", (_, _) => ConfigureHotkeys());
         AddMenuItem(captureMenu, UiLanguage.Code == "ru" ? "Экранное меню: настройки…" : "Screen menu settings…", (_, _) => ConfigureScreenMenu());
@@ -728,7 +729,7 @@ internal sealed class MainForm : Form
         "WatchCursor" or "MoveCursor" or "MoveRelative" or "Click" or "MouseButton" or "Wheel" or "Key" or "KeyState" or "VirtualKey" or "TypeText" or "ClipboardSet" or "InputGroup" => "Мышь и клавиатура",
         "CountTextChars" or "CountFileChars" or "EditFileLine" or "EditFileText" or "ClipboardGet" or "ExtractText" or "TextFile" or "TextFileArray" or "CsvTable" or "ExcelTable" or "PdfText" or "FileQueue" or "Checkpoint" or "IniFile" or "DirectoryList" or "HttpGet" or "HttpPost" or "JsonValue" or
         "TranslateText" or "DetectLanguage" or "LanguagePair" or "TranslateArray" => "Данные и файлы",
-        "Screenshot" or "Note" or "OcrImage" or "WaitScreenText" or "BufferCapture" or "BufferPixel" or "BufferCount" or "BufferHash" or "BufferReplace" or "BufferScanColor" or "BufferScanImage" or "BufferSave" or "MoveFound" or "ActivateWindow" or "MoveWindow" or "WindowFind" or "WindowInfo" or "WindowAction" or "ElementAtPoint" or "ElementInfo" or "ElementSetText" or "UiWait" or "UiAction" or "MessageSend" or "MessageReceive" => "Экран и окна",
+        "Screenshot" or "Note" or "ReadBarcode" or "OcrImage" or "WaitScreenText" or "BufferCapture" or "BufferPixel" or "BufferCount" or "BufferHash" or "BufferReplace" or "BufferScanColor" or "BufferScanImage" or "BufferSave" or "MoveFound" or "ActivateWindow" or "MoveWindow" or "WindowFind" or "WindowInfo" or "WindowAction" or "ElementAtPoint" or "ElementInfo" or "ElementSetText" or "UiWait" or "UiAction" or "MessageSend" or "MessageReceive" => "Экран и окна",
         _ => "Внешние программы"
     };
 
@@ -1160,15 +1161,26 @@ internal sealed class MainForm : Form
             using var overlay = new CaptureOverlay(background: background);
             if (overlay.ShowDialog() != DialogResult.OK) return;
             using var editor = new ScreenshotEditorForm(background, desktop, overlay.SelectedArea, overlay.Shape);
-            if (editor.ShowDialog() != DialogResult.OK) return;
+            var result = editor.ShowDialog();
+            if (result != DialogResult.OK && result != DialogResult.Retry) return;
             using var image = editor.RenderImage();
+            if (result == DialogResult.Retry)
+            {
+                Show();
+                ScreenNoteManager.Show(ScreenNoteForm.FromScreenshot(image), "");
+                return;
+            }
             var baseDirectory = _file == null ? AppContext.BaseDirectory : Path.GetDirectoryName(_file)!;
             var asset = CaptureService.SaveEdited(editor.SelectedArea, overlay.Shape, overlay.RequestedName, _settings, baseDirectory, image);
             _project.Captures.Add(asset);
             AppendLog("Снимок сохранён: " + asset.Path);
         }
         catch (Exception error) { MessageBox.Show(error.Message, UiLanguage.Code == "ru" ? "Ошибка снимка" : "Screenshot error"); }
-        finally { Show(); Activate(); _captureActive = false; }
+        finally
+        {
+            if (!Visible) { Show(); Activate(); }
+            _captureActive = false;
+        }
     }
 
     private void ShowLibrary()
@@ -1775,23 +1787,46 @@ internal sealed class MainForm : Form
         AppendLog($"Удалено блоков: {removable.Count}.");
     }
 
+    private void RebuildProperties(string title, Action build)
+    {
+        _propertyHelpCancel?.Cancel();
+        _propertyHelpCancel = null;
+        // Native child controls can paint as their handles are created. Keep the
+        // field area hidden until the whole set has been laid out.
+        _fields.SuspendLayout();
+        _fields.Hide();
+        try
+        {
+            while (_fields.Controls.Count > 0) _fields.Controls[0].Dispose();
+            _fields.AutoScrollPosition = Point.Empty;
+            build();
+        }
+        finally
+        {
+            _fields.ResumeLayout(performLayout: true);
+            _selection.Text = title;
+            _fields.Show();
+        }
+    }
+
     private void ShowGroupProperties(IReadOnlyList<BlockNode> nodes)
     {
         _selected = null;
-        _fields.Controls.Clear();
-        _selection.Text = UiLanguage.Format("Выбрано блоков: {0}", nodes.Count);
-        _fields.Controls.Add(new Label
+        RebuildProperties(UiLanguage.Format("Выбрано блоков: {0}", nodes.Count), () => _fields.Controls.Add(new Label
         {
             Text = UiLanguage.T("Потяните любой выбранный блок левой кнопкой мыши, чтобы переместить всю группу. Ctrl+C — копировать; Delete — удалить. Щелчок по пустому месту снимет выделение."),
             Width = 250, AutoSize = true, MaximumSize = new Size(250, 0)
-        });
+        }));
     }
 
     private void ShowLinkProperties(BlockNode source, string port, BlockNode target)
     {
         _selected = null;
-        _fields.Controls.Clear();
-        _selection.Text = UiLanguage.T("Связь");
+        RebuildProperties(UiLanguage.T("Связь"), () => BuildLinkProperties(source, port, target));
+    }
+
+    private void BuildLinkProperties(BlockNode source, string port, BlockNode target)
+    {
         _fields.Controls.Add(new Label
         {
             Text = UiLanguage.Format("{0}  →  {1}\nВыход: {2}\n\nОдин выход соединяется с одним входом. К одному входу могут вести несколько связей.\n\nНажмите Delete для удаления выбранной линии.",
@@ -1969,25 +2004,31 @@ internal sealed class MainForm : Form
 
     private void ShowProperties(BlockNode? node)
     {
-        _propertyHelpCancel?.Cancel();
-        _propertyHelpCancel = null;
         _selected = node;
-        while (_fields.Controls.Count > 0) _fields.Controls[0].Dispose();
         if (node == null)
         {
-            _selection.Text = UiLanguage.T("Свойства блока");
-            _fields.Controls.Add(new Label { Text = UiLanguage.T("Выберите блок на поле."), Width = 250, Height = 50 });
+            RebuildProperties(UiLanguage.T("Свойства блока"), () => _fields.Controls.Add(
+                new Label { Text = UiLanguage.T("Выберите блок на поле."), Width = 250, Height = 50 }));
             return;
         }
         var spec = BlockCatalog.Get(node.Kind);
-        _selection.Text = UiLanguage.T(spec.Title);
-        var helpText = UiLanguage.Code == "ru" ? AppHelp.For(node.Kind)
-            : UiLanguage.TOr(spec.Hint, "Настройте параметры блока ниже.");
+        RebuildProperties(UiLanguage.T(spec.Title), () => BuildBlockProperties(node, spec));
+    }
+
+    private void BuildBlockProperties(BlockNode node, BlockSpec spec)
+    {
+        var localizedHint = UiLanguage.TOr(spec.Hint, "Настройте параметры блока ниже.");
+        var helpText = UiLanguage.Code switch
+        {
+            "ru" => AppHelp.For(node.Kind),
+            "en" => EnglishHelp.Block(node.Kind) ?? localizedHint,
+            _ => localizedHint
+        };
         var help = new Label { Text = helpText, Width = 250, AutoSize = true,
             MaximumSize = new Size(250, 0), ForeColor = Color.FromArgb(65, 75, 92),
             Margin = new Padding(0, 4, 0, 8) };
         _fields.Controls.Add(help);
-        if (UiLanguage.Code != "ru")
+        if (UiLanguage.Code is not ("ru" or "en"))
         {
             _propertyHelpCancel = new CancellationTokenSource();
             _ = TranslatePropertyHelpAsync(help, node.Id, spec.Kind, _propertyHelpCancel);
@@ -2312,8 +2353,7 @@ internal sealed class MainForm : Form
             if (UiLanguage.Code is "fr" or "es" or "zh" &&
                 LocalizedHelp.Block(kind, UiLanguage.Code) is { } summary && !label.IsDisposed)
                 label.Text = summary;
-            var translated = UiLanguage.Code == "en" ? EnglishHelp.Block(kind) ?? AppHelp.For(kind) :
-                await HelpTranslationService.TranslateAsync(AppHelp.For(kind), UiLanguage.Code,
+            var translated = await HelpTranslationService.TranslateAsync(AppHelp.For(kind), UiLanguage.Code,
                 _settings.ArgosPythonPath, request.Token);
             if (!request.IsCancellationRequested && !IsDisposed && !label.IsDisposed && _selected?.Id == blockId)
                 label.Text = translated;

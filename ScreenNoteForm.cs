@@ -245,10 +245,32 @@ internal sealed class ScreenNoteForm : Form
     private void SetImage(string path)
     {
         using var source = Image.FromFile(path);
+        SetImage(source);
+    }
+
+    private void SetImage(Image source)
+    {
         var replacement = new Bitmap(source);
         var previous = _picture.Image; _picture.Image = replacement; previous?.Dispose();
         _picture.SetView(1f, 0f, 0f);
         _imageEnabled = true; UpdateSections();
+    }
+
+    internal static ScreenNoteForm FromScreenshot(Bitmap image)
+    {
+        var note = new ScreenNoteForm();
+        try
+        {
+            note._textEnabled = false;
+            note.SetImage(image);
+            note.SetImagePreserveAspect(true);
+            return note;
+        }
+        catch
+        {
+            note.Dispose();
+            throw;
+        }
     }
 
     internal void SetContents(string mode, string text, string imageMode, string imagePath)

@@ -33,9 +33,18 @@ internal static class MainWindowLayoutSmoke
                 ? "Открыть журнал в отдельном окне" : "Open journal in a separate window"));
             var graph = (GraphCanvas)typeof(MainForm).GetField("_graph", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(form)!;
             var fields = (FlowLayoutPanel)typeof(MainForm).GetField("_fields", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(form)!;
-            graph.Select(graph.Project.Nodes.Last());
-            Application.DoEvents();
-            Check(fields.Controls.Count > 0, "selected block properties are populated");
+            bool addedWhileVisible = false;
+            fields.ControlAdded += (_, _) => addedWhileVisible |= fields.Visible;
+            var barcode = BlockCatalog.Create("ReadBarcode", 0, 0);
+            graph.Project.Nodes.Add(barcode);
+            foreach (var node in new[] { graph.Project.Nodes.First(), barcode })
+            {
+                graph.Select(node);
+                Application.DoEvents();
+                Check(fields.Visible && fields.Controls.Count > 0, "selected block properties are populated");
+                Check(propertyTitle.Text == UiLanguage.T(BlockCatalog.Get(node.Kind).Title), "property title follows selection");
+            }
+            Check(!addedWhileVisible, "property fields are built before the panel is shown");
             var menu = form.MainMenuStrip!;
             Check(menu.Items.Count == 8 && menu.CanOverflow, "compact menu with overflow " + language);
             var tools = menu.Items.OfType<ToolStripMenuItem>().Single(i => i.Text == (language == "ru" ? "Инструменты" : "Tools"));

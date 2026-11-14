@@ -61,6 +61,7 @@ internal sealed class AboutForm : Form
         result.AppendLine("• " + (UiLanguage.Code == "ru" ? "База графов: семь готовых сценариев с подсказками и рабочими копиями." : "Graph library: seven examples with on-canvas hints and working copies."));
         result.AppendLine("• " + (UiLanguage.Code == "ru" ? "Текст журнала можно выделять и копировать. В свойствах блоков есть выбор пути и вставка переменных графа." : "Select and copy journal text. Block properties offer path selection and graph variable insertion."));
         result.AppendLine("• " + (UiLanguage.Code == "ru" ? "Компактное меню и адаптивное главное окно сохраняют доступ к свойствам и журналу." : "A compact menu and adaptive main window keep properties and the journal accessible."));
+        result.AppendLine("• " + (UiLanguage.Code == "ru" ? "Снимки можно закреплять как заметки, скрывать области, сравнивать; фигуры поддерживают заливку с прозрачностью. Блок читает QR- и штрихкоды." : "Pin screenshots as notes, cover areas and compare images; shapes support transparent fills. A block reads QR codes and barcodes."));
         result.AppendLine().AppendLine(copy.BlocksHeading + " (" + BlockCatalog.All.Length + ")");
         foreach (var group in BlockCatalog.All.GroupBy(spec => MainForm.CategoryFor(spec.Kind))
                      .OrderBy(group => MainForm.CategoryOrder(group.Key)))
@@ -74,8 +75,9 @@ internal sealed class AboutForm : Form
 
     private static string BuildReleases(Copy copy) =>
         "v" + AppIdentity.VersionLabel + "\r\n" + (UiLanguage.Code == "ru"
-            ? "Верхнее меню сгруппировано, а свойства блока и кнопка журнала остаются доступны при уменьшении окна."
-            : "The top menu is grouped, and block properties and the journal button remain accessible in narrower windows.") +
+            ? "Закрепление снимков как заметок и сравнение снимков, скрытие областей, заливка фигур и чтение QR- и штрихкодов."
+            : "Pin screenshots as notes, compare screenshots, cover areas, fill shapes, and read QR codes and barcodes.") +
+        "\r\n\r\nv1.3.0\r\n" + (UiLanguage.Code == "ru" ? "Компактное меню и адаптивное главное окно." : "Compact menu and adaptive main window.") +
         "\r\n\r\nv1.2.9\r\n" + (UiLanguage.Code == "ru"
             ? "Добавлен редактор снимков: изменение границ, рисунки, фигуры, линии по точкам, ввод текста на снимке и сохранение PNG."
             : "Added a screenshot editor with resizable selection, drawing, shapes, point-based lines, inline text and PNG saving.") +

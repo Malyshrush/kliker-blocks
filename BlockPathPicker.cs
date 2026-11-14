@@ -23,7 +23,7 @@ internal static class BlockPathPicker
             ("OcrImage", "EnginePath") or ("WaitScreenText", "Engine") or ("RunAhk", "Interpreter") or
                 ("Note", "ImagePath") or ("FileQueue", "CurrentFile") => Mode.Open,
             ("CountFileChars" or "EditFileLine" or "EditFileText" or "TextFile" or "TextFileArray" or "CsvTable" or "ExcelTable" or "PdfText" or "IniFile" or
-                "FindImage" or "BufferFindImage" or "BufferScanImage" or "OcrImage" or "Note" or
+                "FindImage" or "BufferFindImage" or "BufferScanImage" or "OcrImage" or "ReadBarcode" or "Note" or
                 "RunFile" or "RunAhk" or "RunScenario" or "PlaySound", "Path") => Mode.Open,
             _ => null
         };
@@ -84,6 +84,7 @@ internal static class BlockPathPicker
             ("Note", "Path") => "Kliker note (*.klnote)|*.klnote",
             ("Note", "ImagePath") => "PNG, JPG, BMP, GIF|*.png;*.jpg;*.jpeg;*.bmp;*.gif",
             ("OcrImage", "Path") => "PNG, JPEG, BMP, TIFF, GIF, WebP, PDF|*.png;*.jpg;*.jpeg;*.bmp;*.tif;*.tiff;*.gif;*.webp;*.pdf",
+            ("ReadBarcode", "Path") => "PNG, JPEG, BMP|*.png;*.jpg;*.jpeg;*.bmp",
             ("FindImage" or "BufferFindImage" or "BufferScanImage", "Path") => "PNG, BMP|*.png;*.bmp",
             ("Screenshot" or "BufferSave", "Path") => "PNG (*.png)|*.png",
             ("CsvTable", _) => "CSV (*.csv)|*.csv",

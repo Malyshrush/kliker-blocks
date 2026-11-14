@@ -1,4 +1,4 @@
-param([string]$Version = '1.2.3', [string]$CandidateSuffix = '')
+param([string]$Version = '1.2.3', [string]$CandidateSuffix = '', [string]$Commit = 'main')
 $ErrorActionPreference = 'Stop'
 $project = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 $releaseDir = Join-Path $project ('publish-v' + ($Version -replace '\.', '') + $CandidateSuffix)
@@ -20,19 +20,26 @@ $names = @(
 if ([version]$Version -ge [version]'1.2.6') {
     $names += "KlikerBlocks-Graphs-$Version-ru.zip", "KlikerBlocks-Graphs-$Version-en.zip"
 }
+if ([version]$Version -ge [version]'1.3.1') {
+    $names += 'screenshot-editor-ru.png'
+}
 foreach ($name in $names) {
     $path = Join-Path $releaseDir $name
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing release asset: $path" }
 }
-try { $release = Invoke-RestMethod -Uri "$base/releases/tags/$tag" -Headers $headers -Method Get }
+$notes = [IO.File]::ReadAllText((Join-Path $releaseDir "RELEASE_NOTES_$Version.md"))
+try { $release = Invoke-RestMethod -Uri "$base/releases/tags/$tag" -Headers $headers -Method Get -TimeoutSec 30 }
 catch {
     if ([int]$_.Exception.Response.StatusCode -ne 404) { throw }
-    $body = @{ tag_name = $tag; target_commitish = 'main'; name = "Kliker Blocks $Version";
-        body = [IO.File]::ReadAllText((Join-Path $releaseDir "RELEASE_NOTES_$Version.md"));
-        draft = $false; prerelease = $true } | ConvertTo-Json -Depth 4
-    $release = Invoke-RestMethod -Uri "$base/releases" -Headers $headers -Method Post -Body $body `
-        -ContentType 'application/json; charset=utf-8'
-    Write-Output "Created $($release.html_url)"
+    $release = Invoke-RestMethod -Uri "$base/releases?per_page=100" -Headers $headers -TimeoutSec 30 |
+        Where-Object { $_.draft -and $_.tag_name -eq $tag } | Select-Object -First 1
+    if (-not $release) {
+        $body = @{ tag_name = $tag; target_commitish = $Commit; name = "Kliker Blocks $Version";
+            body = $notes; draft = $true; prerelease = $true } | ConvertTo-Json -Depth 4
+        $release = Invoke-RestMethod -Uri "$base/releases" -Headers $headers -Method Post -Body $body `
+            -ContentType 'application/json; charset=utf-8' -TimeoutSec 30
+        Write-Output "Created draft for $tag"
+    }
 }
 $uploadBase = $release.upload_url.Split('{')[0]
 foreach ($name in $names) {
@@ -45,7 +52,7 @@ foreach ($name in $names) {
     $path = Join-Path $releaseDir $name
     $uri = "$uploadBase`?name=$([Uri]::EscapeDataString($name))"
     $client = [System.Net.Http.HttpClient]::new()
-    $client.Timeout = [TimeSpan]::FromHours(1)
+    $client.Timeout = [TimeSpan]::FromMinutes(15)
     $client.DefaultRequestHeaders.Authorization = [System.Net.Http.Headers.AuthenticationHeaderValue]::new('Bearer', $token)
     $null = $client.DefaultRequestHeaders.Accept.Add([System.Net.Http.Headers.MediaTypeWithQualityHeaderValue]::new('application/vnd.github+json'))
     $null = $client.DefaultRequestHeaders.UserAgent.ParseAdd('KlikerBlocks-release-publisher')
@@ -73,7 +80,9 @@ foreach ($name in $names) {
     $asset = $verified.assets | Where-Object { $_.name -eq $name -and $_.state -eq 'uploaded' } | Select-Object -First 1
     $localSize = (Get-Item -LiteralPath (Join-Path $releaseDir $name)).Length
     if (-not $asset -or $asset.size -ne $localSize) { throw "Release asset missing or size mismatch: $name" }
+    $hash = (Get-FileHash -LiteralPath (Join-Path $releaseDir $name) -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($asset.digest -and $asset.digest -ne "sha256:$hash") { throw "Release asset hash mismatch: $name" }
 }
-$body = @{ prerelease = $false; draft = $false } | ConvertTo-Json
+$body = @{ prerelease = $false; draft = $false; body = $notes } | ConvertTo-Json
 $verified = Invoke-RestMethod -Uri "$base/releases/$($release.id)" -Headers $headers -Method Patch -Body $body -ContentType 'application/json; charset=utf-8'
 Write-Output "Release published: $($verified.html_url)"

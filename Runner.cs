@@ -1098,6 +1098,16 @@ internal sealed class Runner(ProjectModel project, Action<string> log, Action<in
                     current = node.Link("Далее");
                     break;
                 }
+                case "ReadBarcode":
+                {
+                    var path = _variables.Expand(node.Value("Path"));
+                    using var image = string.IsNullOrWhiteSpace(path)
+                        ? ScreenTools.Capture(SystemInformation.VirtualScreen)
+                        : new Bitmap(ExternalTools.ResolvePath(path, _baseDirectory));
+                    _variables.Set(node.Value("Result"), BarcodeTools.Read(image));
+                    current = node.Link("Далее");
+                    break;
+                }
                 case "OcrImage":
                 {
                     var path = ExternalTools.ResolvePath(_variables.Expand(node.Value("Path")), _baseDirectory);

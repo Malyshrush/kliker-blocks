@@ -5,8 +5,8 @@ namespace KlikerBlocks;
 
 internal sealed class ScreenshotEditorForm : Form
 {
-    internal enum DrawingTool { Selection, Pen, Line, Arrow, DoubleArrow, PolylineArrow, CurveArrow, Rectangle, Ellipse, Text, Star, Heart, Triangle, Diamond, Polyline, Curve }
-    internal sealed record Mark(DrawingTool Tool, Color Color, float Width, Point[] Points, string Text = "");
+    internal enum DrawingTool { Selection, Pen, Line, Arrow, DoubleArrow, PolylineArrow, CurveArrow, Rectangle, Ellipse, Text, Star, Heart, Triangle, Diamond, Polyline, Curve, Redact }
+    internal sealed record Mark(DrawingTool Tool, Color Color, float Width, Point[] Points, string Text = "", Color FillColor = default);
     private enum DragMode { None, Move, Left, Right, Top, Bottom, TopLeft, TopRight, BottomLeft, BottomRight, Draw }
 
     private static string L(string ru, string en) => UiLanguage.Code == "ru" ? ru : en;
@@ -19,6 +19,7 @@ internal sealed class ScreenshotEditorForm : Form
     private readonly Dictionary<DrawingTool, Button> _toolButtons = [];
     private readonly List<ContextMenuStrip> _toolMenus = [];
     private readonly FlowLayoutPanel _toolbar;
+    private readonly FlowLayoutPanel _actions;
     private readonly ToolTip _tips = new();
     private readonly Label _pathHint = new() { AutoSize = true, ForeColor = Color.White, Margin = new Padding(4, 5, 4, 3) };
     internal Func<bool> ShiftPressed = () => (ModifierKeys & Keys.Shift) != 0 || NativeMouse.IsKeyDown(0x10);
@@ -26,6 +27,9 @@ internal sealed class ScreenshotEditorForm : Form
     private readonly NumericUpDown _width = new() { Minimum = 1, Maximum = 30, Value = 3, Width = 48 };
     private DrawingTool _tool;
     private Color _color = Color.Red;
+    private Color _fillColor = Color.Yellow;
+    private readonly NumericUpDown _fillOpacity = new() { Minimum = 0, Maximum = 100, Value = 0, Width = 48 };
+    private Color CurrentFill => Color.FromArgb((int)_fillOpacity.Value * 255 / 100, _fillColor);
     private TextBox? _inlineText;
     private Point _textOrigin;
     private Color _textColor;
@@ -60,11 +64,17 @@ internal sealed class ScreenshotEditorForm : Form
         Cursor = Cursors.Cross;
         _toolbar = new FlowLayoutPanel
         {
-            AutoSize = false, Height = desktop.Width >= 700 ? 44 : 80, Width = Math.Min(700, desktop.Width),
             WrapContents = true, AutoScroll = true, BackColor = Color.FromArgb(35, 42, 55),
-            Padding = new Padding(3), Anchor = AnchorStyles.Top | AnchorStyles.Left
+            Padding = new Padding(3), Anchor = AnchorStyles.Top | AnchorStyles.Left,
+            Cursor = Cursors.Arrow
+        };
+        _actions = new FlowLayoutPanel
+        {
+            FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true,
+            BackColor = _toolbar.BackColor, Padding = _toolbar.Padding, Cursor = Cursors.Arrow
         };
         Controls.Add(_toolbar);
+        Controls.Add(_actions);
         AddTool("↖", L("Переместить область и изменить границы", "Move selection and resize its edges"), DrawingTool.Selection);
         AddTool("✎", L("Карандаш", "Pen"), DrawingTool.Pen);
         AddToolMenu("╱", L("Линии", "Lines"),
@@ -84,7 +94,8 @@ internal sealed class ScreenshotEditorForm : Form
             (DrawingTool.Triangle, "△", L("Треугольник", "Triangle")),
             (DrawingTool.Diamond, "◇", L("Ромб", "Diamond")));
         AddTool("T", L("Текст", "Text"), DrawingTool.Text);
-        var color = Button("●", L("Цвет разметки", "Annotation color"), (sender, _) =>
+        AddTool("■", L("Скрыть область непрозрачной заливкой", "Cover an area with an opaque fill"), DrawingTool.Redact);
+        var color = Button("●", L("Цвет контура и разметки", "Outline and annotation color"), (sender, _) =>
         {
             CommitInlineText();
             FinishPath();
@@ -98,27 +109,40 @@ internal sealed class ScreenshotEditorForm : Form
         });
         color.ForeColor = _color;
         _toolbar.Controls.Add(color);
+        var fill = Button("▣", L("Цвет заливки фигур", "Shape fill color"), (sender, _) =>
+        {
+            using var picker = new ColorDialog { Color = _fillColor, FullOpen = true };
+            if (picker.ShowDialog(this) == DialogResult.OK) _fillColor = picker.Color;
+            if (sender is Button button) button.ForeColor = _fillColor;
+        });
+        fill.ForeColor = _fillColor;
+        _toolbar.Controls.Add(fill);
+        _fillOpacity.Margin = new Padding(3, 7, 5, 3);
+        _fillOpacity.AccessibleName = L("Непрозрачность заливки, %", "Fill opacity, %");
+        _tips.SetToolTip(_fillOpacity, _fillOpacity.AccessibleName);
+        _toolbar.Controls.Add(_fillOpacity);
         _width.Margin = new Padding(3, 7, 5, 3);
         _tips.SetToolTip(_width, L("Толщина линии и размер текста", "Line width and text size"));
         _toolbar.Controls.Add(_width);
-        _toolbar.Controls.Add(Button("↶", L("Отменить последнюю отметку", "Undo last annotation"), (_, _) =>
+        _actions.Controls.Add(Button("↶", L("Отменить последнюю отметку", "Undo last annotation"), (_, _) =>
         {
             CommitInlineText();
             FinishPath();
             if (_marks.Count > 0) { _marks.RemoveAt(_marks.Count - 1); Invalidate(); }
-        }));
-        _toolbar.Controls.Add(Button("⇅", L("Переместить панель инструментов", "Move the toolbar"), (_, _) =>
+        }, background: Color.PeachPuff));
+        _actions.Controls.Add(Button("⇅", L("Переместить панель инструментов", "Move the toolbar"), (_, _) =>
         {
-            _toolbar.Top = _toolbar.Top < ClientSize.Height / 2 ? Math.Max(0, ClientSize.Height - _toolbar.Height) : 0;
-        }));
-        _toolbar.Controls.Add(Button(L("Сохранить", "Save"), L("Сохранить снимок", "Save screenshot"), (_, _) => { CommitInlineText(); FinishPath(); DialogResult = DialogResult.OK; Close(); }, 92));
-        var cancel = Button(L("Отмена", "Cancel"), L("Отменить снимок (Esc)", "Cancel screenshot (Esc)"), (_, _) => { DialogResult = DialogResult.Cancel; Close(); }, 80);
-        _toolbar.Controls.Add(cancel);
-        _toolbar.SetFlowBreak(cancel, true);
+            var screen = ToolbarBounds();
+            _toolbar.Top = _toolbar.Top < screen.Top + screen.Height / 2
+                ? screen.Bottom - _toolbar.Height : screen.Top;
+        }, background: Color.LightCyan));
+        _actions.Controls.Add(Button("📌", L("Открыть снимок как заметку поверх окон", "Open screenshot as a note above other windows"), (_, _) => { CommitInlineText(); FinishPath(); DialogResult = DialogResult.Retry; Close(); }, background: Color.Thistle));
+        _actions.Controls.Add(Button("💾", L("Сохранить снимок", "Save screenshot"), (_, _) => { CommitInlineText(); FinishPath(); DialogResult = DialogResult.OK; Close(); }, background: Color.PaleGreen));
+        _actions.Controls.Add(Button("✕", L("Отменить снимок (Esc)", "Cancel screenshot (Esc)"), (_, _) => { DialogResult = DialogResult.Cancel; Close(); }, background: Color.MistyRose));
+        _toolbar.SetFlowBreak(_width, true);
         _pathHint.Text = L("Точки: щелчок. Завершить: Shift+щелчок или Enter. Отмена: Esc.", "Points: click. Finish: Shift+click or Enter. Cancel: Esc.");
         _toolbar.Controls.Add(_pathHint);
         UpdateToolButtons();
-        PositionToolbar();
     }
 
     protected override void Dispose(bool disposing)
@@ -127,14 +151,15 @@ internal sealed class ScreenshotEditorForm : Form
         base.Dispose(disposing);
     }
 
-    private Button Button(string text, string tip, EventHandler click, int width = 38)
+    private Button Button(string text, string tip, EventHandler click, int width = 38, Color? background = null)
     {
         var result = new Button
         {
             Text = text, Width = width, Height = 32, Margin = new Padding(2), AccessibleName = tip,
-            BackColor = Color.WhiteSmoke, ForeColor = Color.FromArgb(25, 35, 48),
+            BackColor = background ?? Color.WhiteSmoke, ForeColor = Color.FromArgb(25, 35, 48),
             UseVisualStyleBackColor = false, FlatStyle = FlatStyle.Flat
         };
+        if (text is "📌" or "💾") result.Font = new Font("Segoe UI Emoji", 10);
         _tips.SetToolTip(result, tip);
         result.Click += click;
         return result;
@@ -179,22 +204,60 @@ internal sealed class ScreenshotEditorForm : Form
     {
         bool path = _tool is DrawingTool.Polyline or DrawingTool.Curve or DrawingTool.PolylineArrow or DrawingTool.CurveArrow;
         _pathHint.Visible = path;
-        _toolbar.Height = (ClientSize.Width >= 700 ? 44 : 80) + (path ? 30 : 0);
-        PositionToolbar();
-        _toolButtons.TryGetValue(_tool, out var active);
-        foreach (var button in _toolButtons.Values.Distinct())
+        PositionToolbars();
+        foreach (var group in _toolButtons.GroupBy(item => item.Value))
         {
-            button.BackColor = button == active ? Color.FromArgb(160, 210, 255) : Color.WhiteSmoke;
+            var button = group.Key;
+            button.BackColor = group.First().Key switch
+            {
+                DrawingTool.Selection => Color.LightSkyBlue,
+                DrawingTool.Pen => Color.PaleTurquoise,
+                DrawingTool.Line => Color.LightSteelBlue,
+                DrawingTool.Arrow => Color.PeachPuff,
+                DrawingTool.Rectangle => Color.PaleGreen,
+                DrawingTool.Text => Color.Thistle,
+                DrawingTool.Redact => Color.MistyRose,
+                _ => Color.WhiteSmoke
+            };
+            bool selected = group.Any(item => item.Key == _tool);
+            button.FlatAppearance.BorderSize = selected ? 3 : 1;
+            button.FlatAppearance.BorderColor = selected ? Color.FromArgb(29, 76, 150) : Color.FromArgb(85, 105, 129);
         }
     }
 
-    private void PositionToolbar()
+    private Rectangle ToolbarBounds()
     {
-        int x = Math.Clamp(_selection.Left, 0, Math.Max(0, ClientSize.Width - _toolbar.Width));
-        int y = _selection.Bottom + _toolbar.Height + 8 <= ClientSize.Height
-            ? _selection.Bottom + 8 : Math.Max(0, _selection.Top - _toolbar.Height - 8);
-        _toolbar.Location = new Point(x, y);
+        if (_desktop != SystemInformation.VirtualScreen || Screen.AllScreens.Length == 1)
+            return ClientRectangle;
+        var corner = new Point(_desktop.X + _selection.Right - 1, _desktop.Y + _selection.Bottom - 1);
+        var screen = Screen.FromPoint(corner).Bounds;
+        screen.Offset(-_desktop.X, -_desktop.Y);
+        return Rectangle.Intersect(ClientRectangle, screen);
+    }
+
+    private void PositionToolbars()
+    {
+        const int gap = 8;
+        var screen = ToolbarBounds();
+        _actions.Size = _actions.GetPreferredSize(Size.Empty);
+        int left = _selection.Left - gap - _actions.Width;
+        int right = _selection.Right + gap;
+        // Fall back to the monitor edge when the selection reaches both sides.
+        int actionX = right + _actions.Width <= screen.Right ? right
+            : left >= screen.Left ? left : screen.Right - _actions.Width;
+        _actions.Location = new Point(Math.Max(screen.Left, actionX),
+            Math.Clamp(_selection.Bottom - _actions.Height, screen.Top, Math.Max(screen.Top, screen.Bottom - _actions.Height)));
+
+        int maxWidth = Math.Max(1, screen.Width - _actions.Width - gap);
+        _pathHint.MaximumSize = new Size(Math.Max(1, maxWidth - _toolbar.Padding.Horizontal - _pathHint.Margin.Horizontal), 0);
+        _toolbar.Size = _toolbar.GetPreferredSize(new Size(maxWidth, 0));
+        int x = Math.Clamp(_selection.Left, screen.Left, Math.Max(screen.Left, screen.Right - _toolbar.Width - _actions.Width - gap));
+        int y = _selection.Bottom + gap + _toolbar.Height <= screen.Bottom
+            ? _selection.Bottom + gap : _selection.Top - gap - _toolbar.Height;
+        _toolbar.Location = new Point(x,
+            Math.Clamp(y, screen.Top, Math.Max(screen.Top, screen.Bottom - _toolbar.Height)));
         _toolbar.BringToFront();
+        _actions.BringToFront();
     }
 
     protected override void OnKeyDown(KeyEventArgs e)
@@ -379,9 +442,9 @@ internal sealed class ScreenshotEditorForm : Form
             _tool is DrawingTool.Rectangle or DrawingTool.Ellipse or DrawingTool.Star or DrawingTool.Heart or DrawingTool.Triangle or DrawingTool.Diamond)
             _drawing[1] = ConstrainShape(_dragStart, _drawing[1], true);
         if (_drag == DragMode.Draw && _drawing.Count >= 2 && _drawing.Any(point => point != _drawing[0]))
-            _marks.Add(new Mark(_tool, _color, (float)_width.Value, _drawing.ToArray()));
+            _marks.Add(new Mark(_tool, _color, (float)_width.Value, _drawing.ToArray(), FillColor: CurrentFill));
         _drawing.Clear(); _drag = DragMode.None; Capture = false;
-        PositionToolbar(); Invalidate();
+        PositionToolbars(); Invalidate();
     }
 
     private static Rectangle ResizeSelection(Rectangle old, Point start, Point end, DragMode mode, Size desktop, bool square)
@@ -442,7 +505,7 @@ internal sealed class ScreenshotEditorForm : Form
             var preview = _pathPoints.Append(_pathHover).ToArray();
             if (preview.Length >= 2) DrawMark(g, new Mark(_pathTool, _pathColor, _pathWidth, preview));
         }
-        if (_drag == DragMode.Draw && _drawing.Count >= 2) DrawMark(g, new Mark(_tool, _color, (float)_width.Value, _drawing.ToArray()));
+        if (_drag == DragMode.Draw && _drawing.Count >= 2) DrawMark(g, new Mark(_tool, _color, (float)_width.Value, _drawing.ToArray(), FillColor: CurrentFill));
         g.Restore(state);
         using var border = new Pen(Color.DeepSkyBlue, 2);
         if (_shape == "Круг") g.DrawEllipse(border, _selection); else g.DrawRectangle(border, _selection);
@@ -470,6 +533,7 @@ internal sealed class ScreenshotEditorForm : Form
         if (mark.Points.Length < 2) return;
         var last = mark.Points[^1];
         var bounds = Rectangle.FromLTRB(Math.Min(first.X, last.X), Math.Min(first.Y, last.Y), Math.Max(first.X, last.X), Math.Max(first.Y, last.Y));
+        using var fill = new SolidBrush(mark.FillColor);
         switch (mark.Tool)
         {
             case DrawingTool.Pen: g.DrawLines(pen, mark.Points); break;
@@ -480,8 +544,15 @@ internal sealed class ScreenshotEditorForm : Form
             case DrawingTool.DoubleArrow:
                 using (var cap = new AdjustableArrowCap(4, 5, true)) { pen.CustomStartCap = cap; pen.CustomEndCap = cap; g.DrawLine(pen, first, last); }
                 break;
-            case DrawingTool.Rectangle: if (bounds.Width > 0 && bounds.Height > 0) g.DrawRectangle(pen, bounds); break;
-            case DrawingTool.Ellipse: if (bounds.Width > 0 && bounds.Height > 0) g.DrawEllipse(pen, bounds); break;
+            case DrawingTool.Redact:
+                using (var cover = new SolidBrush(Color.FromArgb(255, mark.Color))) g.FillRectangle(cover, bounds);
+                break;
+            case DrawingTool.Rectangle:
+                if (bounds.Width > 0 && bounds.Height > 0) { g.FillRectangle(fill, bounds); g.DrawRectangle(pen, bounds); }
+                break;
+            case DrawingTool.Ellipse:
+                if (bounds.Width > 0 && bounds.Height > 0) { g.FillEllipse(fill, bounds); g.DrawEllipse(pen, bounds); }
+                break;
             case DrawingTool.Polyline: g.DrawLines(pen, mark.Points); break;
             case DrawingTool.Curve:
                 if (mark.Points.Length >= 3) g.DrawCurve(pen, mark.Points);
@@ -503,6 +574,7 @@ internal sealed class ScreenshotEditorForm : Form
                 if (bounds.Width > 0 && bounds.Height > 0)
                 {
                     using var path = ShapePath(mark.Tool, bounds);
+                    g.FillPath(fill, path);
                     g.DrawPath(pen, path);
                 }
                 break;

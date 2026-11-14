@@ -27,6 +27,9 @@ internal static class BlockUiTranslations
     }
 
     private const string Data = """
+Прочитать QR- или штрихкод|Read QR or barcode|Read QR or barcode|Read QR or barcode|Read QR or barcode
+Распознаёт код на экране или в файле|Recognizes a code on screen or in a file|Recognizes a code on screen or in a file|Recognizes a code on screen or in a file|Recognizes a code on screen or in a file
+Файл изображения (пусто = экран)|Image file (empty = screen)|Image file (empty = screen)|Image file (empty = screen)|Image file (empty = screen)
 О программе…|About…|À propos…|Acerca de…|关于…
 Что я умею|What I can do|Ce que je sais faire|Lo que puedo hacer|我的功能
 Демонстрация Что я умею|What I can do demo|Démonstration Ce que je sais faire|Demo Lo que puedo hacer|我的功能演示

@@ -164,6 +164,20 @@ internal static class SelfTest
                 }
                 using (var note = ScreenNoteForm.LoadFrom(sectionNote))
                     Assert(note.HasTextSection() && !note.HasImageSection() && note.GetNoteText() == "Restored", "text section can be restored and image removed");
+                using (var screenshot = new Bitmap(20, 12))
+                using (var pinned = ScreenNoteForm.FromScreenshot(screenshot))
+                {
+                    screenshot.SetPixel(3, 4, Color.Red);
+                    var picture = pinned.Controls.OfType<SplitContainer>().Single().Panel2.Controls.OfType<NotePictureBox>().Single();
+                    Assert(!pinned.HasTextSection() && pinned.HasImageSection() && pinned.TopMost &&
+                        pinned.PreservesImageAspect() && pinned.HasUnsavedChanges() && pinned.SavedPath is null &&
+                        ((Bitmap)picture.Image!).GetPixel(3, 4).ToArgb() != Color.Red.ToArgb(),
+                        "pin creates an unsaved image-only note with an independent copy of the screenshot");
+                    pinned.SaveTo(sectionNote);
+                }
+                using (var pinned = ScreenNoteForm.LoadFrom(sectionNote))
+                    Assert(!pinned.HasTextSection() && pinned.HasImageSection() && pinned.PreservesImageAspect(),
+                        "a pinned screenshot can be saved and reopened as an image-only note");
             }
             finally { SynchronizationContext.SetSynchronizationContext(previousContext); }
         }
