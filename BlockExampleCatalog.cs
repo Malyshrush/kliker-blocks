@@ -247,6 +247,31 @@ internal static class BlockExampleCatalog
                 Link(body, "Далее", ret);
                 break;
             }
+            case "IfNot":
+            case "IfAnd":
+            case "IfOr":
+            case "IfOnly":
+            {
+                var first = Add("IfKeyDown", 1);
+                first.Values["Key"] = "SHIFT";
+                Link(start, "Далее", first);
+                Link(first, "Да", featured);
+                if (kind != "IfNot")
+                {
+                    var second = Add("IfKeyDown", 3);
+                    second.Values["Key"] = "CTRL";
+                    Link(featured, "Условие", second);
+                }
+                Link(featured, "Да", Say("Результат: Да", "Result: Yes", 4));
+                Link(featured, "Нет", Say("Результат: Нет", "Result: No", 4, 1));
+                noteRu += kind == "IfNot"
+                    ? " Удерживайте или отпустите Shift и запустите пример: НЕ меняет результат проверки Shift на противоположный."
+                    : " Удерживайте Shift и/или Ctrl и запустите пример. Выход «Условие» проверяет Ctrl; результат выводится через «Да» или «Нет» логического блока. Выходы второй проверки оставлены пустыми.";
+                noteEn += kind == "IfNot"
+                    ? " Hold or release Shift and run the example: NOT reverses the Shift condition."
+                    : " Hold Shift and/or Ctrl and run the example. The Condition output checks Ctrl; the logic block Yes or No output reports the result. The second condition outputs are left empty.";
+                break;
+            }
             case "WaitScreenText":
                 Link(featured, "Найдено", Say("Текст появился", "Text appeared", 4));
                 Link(featured, "Таймаут", Say("Текст не найден за 1 секунду", "Text was not found within 1 second", 4, 1));
@@ -354,6 +379,13 @@ internal static class BlockExampleCatalog
                 ru += " Краткая форма if возвращает TRUE или FALSE; при counter=2 сработает выход «Да».";
                 en += " The short if form returns TRUE or FALSE; with counter=2 the Yes output runs.";
                 break;
+            case "IfNot":
+            case "IfAnd":
+            case "IfOr":
+            case "IfOnly":
+                ru += " Соедините блок «Если» с логическим блоком; для И, ИЛИ и ТОЛЬКО подключите выход «Условие» ко второму блоку «Если». Результат получают с выходов «Да» и «Нет» логического блока.";
+                en += " Connect an If block to the logic block; for AND, OR and ONLY connect its Condition output to a second If block. Use the logic block Yes and No outputs for the result.";
+                break;
             case "SwitchValue": Set("Expression", "=$counter"); break;
             case "StringSplit": Set("Text", "red,green,blue"); break;
             case "SetVariable": Set("Value", "hello"); break;
@@ -389,6 +421,13 @@ internal static class BlockExampleCatalog
                 Set("Body", "{\"name\":\"Alex\"}");
                 ru += " Замените адрес на свой тестовый сервер; POST отправит тело серверу только после запуска.";
                 en += " Replace the URL with your own test server; POST sends the body only when you run the graph.";
+                break;
+            case "TelegramSend":
+                Set("ChatId", "@your_channel");
+                Set("Action", "Сообщение");
+                Set("Message", UiLanguage.Code == "ru" ? "Отчёт готов: ${report}" : "Report ready: ${report}");
+                ru += " Перед запуском настройте токен, замените @your_channel на свой чат и задайте report. Запуск отправит реальное сообщение в Telegram.";
+                en += " Before running, configure a bot token, replace @your_channel with your chat and set report. Running sends a real Telegram message.";
                 break;
             case "JsonValue": Set("Json", "{\"user\":{\"name\":\"Alex\"}}"); Set("Path", "user.name"); break;
             case "WaitEvent": Set("TimeoutMs", "3000"); break;
@@ -433,6 +472,11 @@ internal static class BlockExampleCatalog
         {
             ru += " Нужен доступ к указанному сайту; замените URL для собственного запроса.";
             en += " The specified site must be reachable; replace the URL for your own request.";
+        }
+        else if (kind == "TelegramSend")
+        {
+            ru += " Бот должен иметь право писать в выбранный чат; личный получатель предварительно запускает бота командой /start.";
+            en += " The bot needs permission to write in the selected chat; a private recipient must first start the bot with /start.";
         }
         else if (kind is "LogFile")
         {

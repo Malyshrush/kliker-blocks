@@ -75,6 +75,9 @@ internal sealed class AboutForm : Form
 
     private static string BuildReleases(Copy copy) =>
         "v" + AppIdentity.VersionLabel + "\r\n" + (UiLanguage.Code == "ru"
+            ? "Добавлены Telegram-блок для отправки сообщений и файлов с защищённым токеном, а также условия НЕ, И, ИЛИ и исключающее ИЛИ."
+            : "Added a Telegram block for sending messages and files with a protected token, plus NOT, AND, OR and exclusive OR conditions.") +
+        "\r\n\r\nv1.3.1\r\n" + (UiLanguage.Code == "ru"
             ? "Закрепление снимков как заметок и сравнение снимков, скрытие областей, заливка фигур и чтение QR- и штрихкодов."
             : "Pin screenshots as notes, compare screenshots, cover areas, fill shapes, and read QR codes and barcodes.") +
         "\r\n\r\nv1.3.0\r\n" + (UiLanguage.Code == "ru" ? "Компактное меню и адаптивное главное окно." : "Compact menu and adaptive main window.") +

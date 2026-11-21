@@ -353,6 +353,8 @@ internal static class SelfTest
         TestJournalTracing();
         Console.WriteLine("Journal tests passed.");
         Task.Run(TestTranslation).GetAwaiter().GetResult();
+        Task.Run(TestTelegram).GetAwaiter().GetResult();
+        Task.Run(TestLogicalConditions).GetAwaiter().GetResult();
         Console.WriteLine("Translation tests passed.");
         TestShowcaseGraph();
         Console.WriteLine("Showcase graph tests passed.");
@@ -2193,6 +2195,15 @@ internal static class SelfTest
         Console.WriteLine("Self-test passed");
     }
 
+    public static void RunTelegramSmoke()
+    {
+        UiLanguage.Configure("ru");
+        TestTelegram().GetAwaiter().GetResult();
+        TestLogicalConditions().GetAwaiter().GetResult();
+        UiLanguage.Configure("en");
+        Console.WriteLine("Local feature tests passed (Telegram mock requests, DPAPI and logical conditions; no Telegram network call).");
+    }
+
     private static void TestGraphAppearanceAndRouting()
     {
         var start = BlockCatalog.Create("Start", 40, 40);
@@ -2675,6 +2686,158 @@ internal static class SelfTest
         Assert(OfflineTranslationInstaller.PlanPackages(available,
             [new ArgosModel("ru", "en", "")], "ru", "fr", false).Count == 1,
             "on-demand installer reuses an already installed language leg");
+    }
+
+    private static async Task TestTelegram()
+    {
+        var token = new string('9', 20) + ":" + Guid.NewGuid().ToString("N");
+        var protectedToken = TelegramBotSettings.ProtectToken(token);
+        try
+        {
+            Assert(TelegramBotSettings.UnprotectToken(protectedToken) == token,
+                "Telegram token encrypts and decrypts with current-user Windows protection");
+        }
+        finally { System.Security.Cryptography.CryptographicOperations.ZeroMemory(protectedToken); }
+
+        using (var forbidden = new HttpClient(new TelegramTestHandler { Forbidden = true }))
+        {
+            try
+            {
+                await TelegramTools.SendAsync(token, "@test_channel", "Сообщение", "test", "", 5000, CancellationToken.None, forbidden);
+                throw new Exception("Telegram 403 was accepted");
+            }
+            catch (InvalidOperationException error) when (error.Message.Contains("бот не состоит", StringComparison.Ordinal)) { }
+        }
+        var handler = new TelegramTestHandler();
+        using var client = new HttpClient(handler);
+        var textResult = await TelegramTools.SendAsync(token, "@test_channel", "Сообщение", "Report: Привет",
+            "", 5000, CancellationToken.None, client);
+        Assert(textResult.MessageId == 731 && handler.Request?.Method == HttpMethod.Post &&
+            handler.Request.RequestUri?.Scheme == "https" &&
+            handler.Request?.RequestUri?.AbsolutePath == $"/bot{token}/sendMessage" &&
+            handler.Body.Contains("chat_id=%40test_channel", StringComparison.Ordinal) &&
+            handler.Body.Contains("Report%3A+%D0%9F%D1%80%D0%B8%D0%B2%D0%B5%D1%82", StringComparison.Ordinal),
+            "Telegram text send builds an HTTPS Bot API request with resolved message text without network");
+
+        var tempFile = Path.Combine(Path.GetTempPath(), "kliker-telegram-test-" + Guid.NewGuid().ToString("N") + ".txt");
+        try
+        {
+            await File.WriteAllTextAsync(tempFile, "KLIKER Telegram test payload");
+            var fileResult = await TelegramTools.SendAsync(token, "-1001234567890", "Сообщение и файл",
+                "Локальный тест", tempFile, 5000, CancellationToken.None, client);
+            Assert(fileResult.MessageId == 731, "Telegram file send parses the returned message ID");
+            Assert(handler.Request?.RequestUri?.AbsolutePath == $"/bot{token}/sendDocument",
+                "Telegram file send selects the sendDocument method");
+            Assert(handler.Request?.Content?.Headers.ContentType?.MediaType == "multipart/form-data" &&
+                handler.MultipartNames.Contains("document"),
+                "Telegram file send attaches the document part in multipart content");
+            Assert(handler.MultipartBodies.Contains("KLIKER Telegram test payload") &&
+                handler.MultipartBodies.Contains("Локальный тест"),
+                "Telegram file send includes file bytes and caption in multipart content");
+        }
+        finally { if (File.Exists(tempFile)) File.Delete(tempFile); }
+
+        try
+        {
+            await TelegramTools.SendAsync(token, "@test", "Сообщение", "", "", 5000,
+                CancellationToken.None, client);
+            throw new Exception("Telegram accepted an empty text message");
+        }
+        catch (InvalidOperationException error) when (error.Message.Contains("4096", StringComparison.Ordinal)) { }
+        try
+        {
+            await TelegramTools.SendAsync("bad/token", "@test", "Сообщение", "valid", "", 5000,
+                CancellationToken.None, client);
+            throw new Exception("Telegram accepted a token that could alter the API route");
+        }
+        catch (InvalidOperationException error) when (error.Message.Contains("формат", StringComparison.Ordinal)) { }
+        Assert(BlockCatalog.All.Any(spec => spec.Kind == "TelegramSend") &&
+            VariableNameRules.IsAscii(BlockCatalog.Create("TelegramSend", 0, 0).Value("Result")) &&
+            BlockPathPicker.For(BlockCatalog.Create("TelegramSend", 0, 0), "FilePath") == BlockPathPicker.Mode.Open,
+            "Telegram block is catalogued with a valid result variable and file picker");
+
+        var start = BlockCatalog.Create("Start", 0, 0);
+        var send = BlockCatalog.Create("TelegramSend", 200, 0);
+        send.Values["ChatId"] = "@test_channel";
+        send.Values["Message"] = "Report: ${report}";
+        var readResult = BlockCatalog.Create("Log", 400, 0);
+        readResult.Values["Text"] = "message_id=${telegram_message_id}";
+        start.Links["Далее"] = send.Id;
+        send.Links["Далее"] = readResult.Id;
+        var runnerLog = new List<string>();
+        string? receivedToken = null, receivedChat = null, receivedText = null;
+        await new Runner(new ProjectModel { Nodes = [start, send, readResult], VariableNamesAsciiOnly = true },
+            runnerLog.Add, (_, _) => { }, telegramToken: () => token,
+            telegramSend: (received, chat, _, message, _, _, _) =>
+            {
+                receivedToken = received; receivedChat = chat; receivedText = message;
+                return Task.FromResult(new TelegramSendResult(731));
+            }).RunAsync(CancellationToken.None, initialValues: new Dictionary<string, string> { ["report"] = "all clear" });
+        Assert(receivedToken == token && receivedChat == "@test_channel" && receivedText == "Report: all clear" &&
+            runnerLog.Contains("message_id=731", StringComparer.Ordinal),
+            "Telegram block resolves variables, sends through its client, and stores the returned message ID");
+    }
+
+    private static async Task TestLogicalConditions()
+    {
+        static async Task<bool> Evaluate(string kind, bool a, bool b)
+        {
+            var start = BlockCatalog.Create("Start", 0, 0);
+            var first = BlockCatalog.Create("IfKeyDown", 100, 0); first.Values["Key"] = "A";
+            var second = BlockCatalog.Create("IfKeyDown", 300, 0); second.Values["Key"] = "B";
+            var gate = BlockCatalog.Create(kind, 200, 0);
+            var yes = BlockCatalog.Create("Log", 400, 0); yes.Values["Text"] = "logic_yes";
+            var no = BlockCatalog.Create("Log", 400, 100); no.Values["Text"] = "logic_no";
+            start.Links["Далее"] = first.Id;
+            first.Links["Да"] = gate.Id;
+            if (kind != "IfNot") gate.Links["Условие"] = second.Id;
+            gate.Links["Да"] = yes.Id; gate.Links["Нет"] = no.Id;
+            var log = new List<string>();
+            await new Runner(new ProjectModel { Nodes = [start, first, gate, second, yes, no], VariableNamesAsciiOnly = true },
+                log.Add, (_, _) => { }, keyState: key => (key == (byte)'A' ? a : key == (byte)'B' && b, false))
+                .RunAsync(CancellationToken.None);
+            return log.Contains("logic_yes", StringComparer.Ordinal);
+        }
+        foreach (var kind in new[] { "IfNot", "IfAnd", "IfOr", "IfOnly" })
+        foreach (var a in new[] { false, true })
+        foreach (var b in new[] { false, true })
+        {
+            var expected = kind switch { "IfNot" => !a, "IfAnd" => a && b, "IfOr" => a || b, _ => a ^ b };
+            Assert(await Evaluate(kind, a, b) == expected, $"{kind} combines existing key condition blocks");
+        }
+    }
+
+    private sealed class TelegramTestHandler : HttpMessageHandler
+    {
+        public HttpRequestMessage? Request { get; private set; }
+        public bool Forbidden { get; init; }
+        public string Body { get; private set; } = "";
+        public List<string> MultipartNames { get; } = [];
+        public List<string> MultipartFileNames { get; } = [];
+        public List<string> MultipartBodies { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Request = request;
+            if (request.Content is MultipartFormDataContent multipart)
+            {
+                foreach (var part in multipart)
+                {
+                    MultipartNames.Add(part.Headers.ContentDisposition?.Name?.Trim('"') ?? "");
+                    MultipartFileNames.Add(part.Headers.ContentDisposition?.FileName?.Trim('"') ?? "");
+                    MultipartBodies.Add(await part.ReadAsStringAsync(cancellationToken));
+                }
+            }
+            else Body = request.Content is null ? "" : await request.Content.ReadAsStringAsync(cancellationToken);
+            if (Forbidden) return new HttpResponseMessage(System.Net.HttpStatusCode.Forbidden)
+            {
+                Content = new StringContent("{\"ok\":false,\"error_code\":403,\"description\":\"Forbidden: bot is not a member of the channel chat\"}", System.Text.Encoding.UTF8, "application/json")
+            };
+            return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"ok\":true,\"result\":{\"message_id\":731}}", System.Text.Encoding.UTF8, "application/json")
+            };
+        }
     }
 
     private sealed class TranslationTestHandler : HttpMessageHandler
@@ -3693,7 +3856,8 @@ internal static class SelfTest
             BlockPathPicker.For(BlockCatalog.Create("DirectoryList", 0, 0), "Pattern") == BlockPathPicker.Mode.FolderWithMask &&
             BlockPathPicker.For(BlockCatalog.Create("OcrImage", 0, 0), "Path") == BlockPathPicker.Mode.Open &&
             BlockPathPicker.For(BlockCatalog.Create("Screenshot", 0, 0), "Path") == BlockPathPicker.Mode.Save &&
-            BlockPathPicker.For(BlockCatalog.Create("JsonValue", 0, 0), "Path") is null,
+            BlockPathPicker.For(BlockCatalog.Create("JsonValue", 0, 0), "Path") is null &&
+            BlockPathPicker.For(BlockCatalog.Create("TelegramSend", 0, 0), "FilePath") == BlockPathPicker.Mode.Open,
             "the path picker distinguishes folders, masks, source and destination files from JSON paths");
 
         var previousLanguage = UiLanguage.Code;
@@ -3904,6 +4068,8 @@ internal static class SelfTest
         UiLanguage.Configure("ru");
     }
 
+    public static void RunLogicExampleSmoke() => TestHelpGraphExamples();
+
     private static void TestHelpGraphExamples()
     {
         foreach (var language in new[] { "ru", "en" })
@@ -3924,6 +4090,28 @@ internal static class SelfTest
                     $"{language} help example for {spec.Kind} explains its trace");
             }
         }
+        Console.WriteLine("Checking logic example execution.");
+        foreach (var language in new[] { "ru", "en" })
+        foreach (var kind in new[] { "IfNot", "IfAnd", "IfOr", "IfOnly" })
+        foreach (var shift in new[] { false, true })
+        foreach (var ctrl in new[] { false, true })
+        {
+            UiLanguage.Configure(language);
+            var nodes = GraphCodeCodec.Parse(BlockExampleCatalog.For(kind).Code);
+            var graph = new ProjectModel { Nodes = nodes, VariableNamesAsciiOnly = true };
+            var messages = new List<string>();
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            new Runner(graph, messages.Add, (_, _) => { }, keyState: key =>
+                (key == 16 ? shift : key == 17 && ctrl, false)).RunAsync(timeout.Token).GetAwaiter().GetResult();
+            var expected = kind switch { "IfNot" => !shift, "IfAnd" => shift && ctrl,
+                "IfOr" => shift || ctrl, _ => shift ^ ctrl };
+            var result = language == "ru" ? (expected ? "Результат: Да" : "Результат: Нет")
+                : (expected ? "Result: Yes" : "Result: No");
+            Assert(messages.Contains(result), $"{language} {kind} help example runs with Shift/Ctrl and selects {result}");
+        }
+        Console.WriteLine("Checking bounded journal queue.");
+        TestJournalBackpressure();
+        Console.WriteLine("Logic examples and journal queue checks passed.");
         UiLanguage.Configure("ru");
         var radioExample = BlockExampleCatalog.For("RadioDialog");
         var radioNodes = GraphCodeCodec.Parse(radioExample.Code);
@@ -3960,6 +4148,61 @@ internal static class SelfTest
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
             new Runner(graph, _ => { }, (_, _) => { }).RunAsync(timeout.Token).GetAwaiter().GetResult();
         }
+    }
+
+    private static void TestJournalBackpressure()
+    {
+        var queue = new PendingJournalEntries(3);
+        foreach (var item in new[] { "a", "b", "c", "d" }) queue.Enqueue(item);
+        var first = queue.Take(2);
+        Assert(first.Dropped == 1 && first.Entries.SequenceEqual(new[] { "b", "c" }) &&
+            queue.Take(2).Entries.SequenceEqual(new[] { "d" }), "bounded journal reports dropped entries and preserves order");
+        queue.Enqueue("old"); queue.Clear();
+        Assert(queue.Take(2).Entries.Length == 0, "clearing journal clears queued entries");
+
+        var concurrent = new PendingJournalEntries(100);
+        Parallel.For(0, 10000, i => concurrent.Enqueue(i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        var result = concurrent.Take(200);
+        Assert(result.Dropped == 9900 && result.Entries.Length == 100,
+            "concurrent journal producers stay bounded and report all dropped entries");
+    }
+
+    public static void RunJournalUiSmoke()
+    {
+        Console.WriteLine("Creating journal test window.");
+        using var form = new MainForm(uiPreview: true);
+        form.ShowInTaskbar = false;
+        form.Opacity = 0;
+        form.Show();
+        Console.WriteLine("Journal test window shown.");
+        Application.DoEvents();
+        Console.WriteLine("Journal test message loop started.");
+        var method = typeof(MainForm).GetMethod("AppendRunnerLog", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var log = (Action<string>)Delegate.CreateDelegate(typeof(Action<string>), form, method);
+        var start = BlockCatalog.Create("Start", 0, 0); start.LogActions = true;
+        var firstKey = BlockCatalog.Create("IfKeyDown", 200, 0); firstKey.Values["Key"] = "SHIFT"; firstKey.LogActions = true;
+        var secondKey = BlockCatalog.Create("IfKeyDown", 400, 0); secondKey.Values["Key"] = "CTRL"; secondKey.LogActions = true;
+        start.Links["Далее"] = firstKey.Id; firstKey.Links["Да"] = secondKey.Id;
+        var graph = new ProjectModel { Nodes = [start, firstKey, secondKey], RunMode = "Повторять до остановки", CycleDelayMs = 10 };
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        var task = new Runner(graph, log, (_, _) => { }, keyState: _ => (false, false)).RunAsync(cancellation.Token);
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var ticks = 0;
+        Console.WriteLine("Journal runner started.");
+        while (clock.ElapsedMilliseconds < 1800)
+        {
+            Application.DoEvents();
+            Thread.Sleep(5);
+            ticks++;
+        }
+        Console.WriteLine("Stopping repeating journal test.");
+        cancellation.Cancel();
+        while (!task.IsCompleted && clock.ElapsedMilliseconds < 5000) { Application.DoEvents(); Thread.Sleep(5); }
+        Console.WriteLine($"Journal UI: elapsed={clock.ElapsedMilliseconds}, ticks={ticks}, taskCompleted={task.IsCompleted}, handle={form.IsHandleCreated}");
+        Assert(task.IsCompleted && ticks > 20 && form.IsHandleCreated, "repeating traced Shift/Ctrl scenario keeps the UI responsive and stops");
+        try { task.GetAwaiter().GetResult(); } catch (OperationCanceledException) { }
+        form.Close();
+        Console.WriteLine("Journal test window closed.");
     }
 
     private static void TestShowcaseButtonLayout()

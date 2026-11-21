@@ -58,6 +58,8 @@ internal sealed class MainForm : Form
     private readonly FlowLayoutPanel _fields = new();
     private CancellationTokenSource? _propertyHelpCancel;
     private readonly ExecutionJournal _log = new();
+    private readonly PendingJournalEntries _pendingJournal = new();
+    private readonly System.Windows.Forms.Timer _journalTimer = new() { Interval = 75 };
     private readonly ToolTip _fieldTools = new();
     private readonly CheckBox _journalWrapMain = new();
     private CheckBox? _journalWrapDetached;
@@ -123,7 +125,9 @@ internal sealed class MainForm : Form
         Font = new Font("Segoe UI", 9.5f);
         KeyPreview = true;
         KeyDown += HandleEditorKeys;
-        Disposed += (_, _) => _fieldTools.Dispose();
+        _journalTimer.Tick += (_, _) => FlushRunnerLog();
+        _journalTimer.Start();
+        Disposed += (_, _) => { _journalTimer.Stop(); _journalTimer.Dispose(); _fieldTools.Dispose(); };
 
         var root = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 4, ColumnCount = 1 };
         _rootLayout = root;
@@ -245,6 +249,7 @@ internal sealed class MainForm : Form
         var settingsMenu = new ToolStripMenuItem(UiLanguage.Code == "ru" ? "Настройки" : "Settings");
         settingsMenu.DropDownItems.Add(mouseMenu);
         settingsMenu.DropDownItems.Add(languagesMenu);
+        AddMenuItem(settingsMenu, "Telegram Bot API…", (_, _) => ConfigureTelegramBot());
         menu.Items.AddRange([fileMenu, editorMenu, blocksMenu, CreateGraphLibraryMenu(), scenarioMenu, toolsMenu, settingsMenu, helpMenu]);
         foreach (ToolStripMenuItem item in menu.Items)
         {
@@ -724,10 +729,10 @@ internal sealed class MainForm : Form
         "Start" or "Stop" or "Log" or "LogFile" or "LogClear" or "LogShow" or "PlaySound" or "SpeakText" or "Beep" or "InputDialog" or "ChoiceDialog" or "RadioDialog" or "HintPopup" or "Wait" or "WaitEvent" or "ShowcaseStep" => "Основные",
         "SetVariable" or "DefineVariable" or "UndefineVariable" or "SetVariableByName" or "MathVariable" or "ArraySet" or "ArrayAction" or "StringSplit" or "IfVariable" => "Переменные",
         "Repeat" or "WhileExpression" or "SwitchValue" or "Parallel" or "BranchEnd" or "CallSub" or "SubStart" or "SubReturn" => "Циклы и ветки",
-        "IfExpression" => "Условия «Если» и поиск",
+        "IfExpression" or "IfNot" or "IfAnd" or "IfOr" or "IfOnly" => "Условия «Если» и поиск",
         "IfMoved" or "IfPixel" or "WaitPixel" or "IfKeyDown" or "FindColor" or "FindImage" or "BufferFindColor" or "BufferFindImage" or "IfWindow" => "Условия «Если» и поиск",
         "WatchCursor" or "MoveCursor" or "MoveRelative" or "Click" or "MouseButton" or "Wheel" or "Key" or "KeyState" or "VirtualKey" or "TypeText" or "ClipboardSet" or "InputGroup" => "Мышь и клавиатура",
-        "CountTextChars" or "CountFileChars" or "EditFileLine" or "EditFileText" or "ClipboardGet" or "ExtractText" or "TextFile" or "TextFileArray" or "CsvTable" or "ExcelTable" or "PdfText" or "FileQueue" or "Checkpoint" or "IniFile" or "DirectoryList" or "HttpGet" or "HttpPost" or "JsonValue" or
+        "CountTextChars" or "CountFileChars" or "EditFileLine" or "EditFileText" or "ClipboardGet" or "ExtractText" or "TextFile" or "TextFileArray" or "CsvTable" or "ExcelTable" or "PdfText" or "FileQueue" or "Checkpoint" or "IniFile" or "DirectoryList" or "HttpGet" or "HttpPost" or "TelegramSend" or "JsonValue" or
         "TranslateText" or "DetectLanguage" or "LanguagePair" or "TranslateArray" => "Данные и файлы",
         "Screenshot" or "Note" or "ReadBarcode" or "OcrImage" or "WaitScreenText" or "BufferCapture" or "BufferPixel" or "BufferCount" or "BufferHash" or "BufferReplace" or "BufferScanColor" or "BufferScanImage" or "BufferSave" or "MoveFound" or "ActivateWindow" or "MoveWindow" or "WindowFind" or "WindowInfo" or "WindowAction" or "ElementAtPoint" or "ElementInfo" or "ElementSetText" or "UiWait" or "UiAction" or "MessageSend" or "MessageReceive" => "Экран и окна",
         _ => "Внешние программы"
@@ -1010,6 +1015,12 @@ internal sealed class MainForm : Form
         }
         try { _settings.Save(); AppendLog("Горячие клавиши сохранены."); }
         catch (Exception error) { MessageBox.Show(this, error.Message, "Не удалось сохранить настройки"); }
+    }
+
+    private void ConfigureTelegramBot()
+    {
+        using var dialog = new TelegramSettingsForm();
+        dialog.ShowDialog(this);
     }
 
     private void ToggleAutostart()
@@ -2538,7 +2549,7 @@ internal sealed class MainForm : Form
                 _file == null ? AppContext.BaseDirectory : Path.GetDirectoryName(_file),
                 (id, state) => UI(() => UpdateWatchIndicator(runVersion, id, state)),
                 conditionStatus: (id, selected) => UI(() => UpdateConditionIndicator(runVersion, id, selected)),
-                clearLog: () => UI(_log.ClearEntries),
+                clearLog: () => { _pendingJournal.Clear(); UI(_log.ClearEntries); },
                 showLog: visible => UI(() => SetLogVisible(visible)),
                 inputDialog: (message, value, delay, window, cancel) => OnUiAsync(() => DialogTools.Input(this, message, value, delay, cancel, options: window)),
                 choiceDialog: (message, buttons, icon, window, cancel) => OnUiAsync(() => DialogTools.Choice(this, message, buttons, icon, cancel, options: window)),
@@ -2733,7 +2744,14 @@ internal sealed class MainForm : Form
     {
         var entry = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}  {UiLanguage.T(message)}";
         WriteJournalEntry(entry);
-        UI(() => ShowLogEntry(entry));
+        _pendingJournal.Enqueue(entry);
+    }
+
+    private void FlushRunnerLog()
+    {
+        var (dropped, entries) = _pendingJournal.Take(5);
+        if (dropped > 0) ShowLogEntry(UiLanguage.Format("В окне журнала пропущено записей: {0}.", dropped));
+        foreach (var entry in entries) ShowLogEntry(entry);
     }
 
     private void WriteJournalEntry(string entry)

@@ -25,7 +25,9 @@ internal sealed class Runner(ProjectModel project, Action<string> log, Action<in
     int nestedDepth = 0,
     Action<Guid, IReadOnlyDictionary<string, string>, bool>? debugState = null,
     Func<string, CancellationToken, Task<string?>>? ensureOcr = null,
-    Func<NoteRequest, CancellationToken, Task<string>>? noteAction = null)
+    Func<NoteRequest, CancellationToken, Task<string>>? noteAction = null,
+    Func<string>? telegramToken = null,
+    Func<string, string, string, string, string, int, CancellationToken, Task<TelegramSendResult>>? telegramSend = null)
 {
     private sealed class SubReturnSignal : Exception { }
     private readonly Dictionary<Guid, BlockNode> _nodes = project.Nodes.ToDictionary(n => n.Id);
@@ -47,6 +49,10 @@ internal sealed class Runner(ProjectModel project, Action<string> log, Action<in
     private readonly Func<string, string, int, int, CancellationToken, Task> _speakText =
         speakText ?? WindowsSpeech.SpeakAsync;
     private readonly Func<string, CancellationToken, Task<string?>>? _ensureOcr = ensureOcr;
+    private readonly Func<string> _telegramToken = telegramToken ?? TelegramBotSettings.LoadToken;
+    private readonly Func<string, string, string, string, string, int, CancellationToken, Task<TelegramSendResult>> _telegramSend =
+        telegramSend ?? ((token, chat, action, message, path, timeout, cancel) =>
+            TelegramTools.SendAsync(token, chat, action, message, path, timeout, cancel));
     private readonly Func<string, VariableStore, CancellationToken, Task> _showcaseStep = showcaseStep ??
         ((_, _, _) => throw new InvalidOperationException(UiLanguage.T("Этот шаг работает только во встроенной демонстрации Kliker Blocks.")));
     private readonly Func<int, int, CancellationToken, Task> _beep = beep ??
@@ -327,8 +333,46 @@ internal sealed class Runner(ProjectModel project, Action<string> log, Action<in
             Links = source.Links,
             Values = source.Values.ToDictionary(entry => entry.Key,
                 entry => source.Kind == "RadioDialog" && entry.Key == "Options"
-                    ? _variables.ResolveLines(entry.Value) : _variables.Resolve(entry.Value))
+                    ? _variables.ResolveLines(entry.Value) : _variables.Resolve(entry.Value,
+                        IsLogicCondition(source.Kind) ? EvaluateLogicFunction : null))
         };
+    }
+
+    private static bool IsBooleanCondition(string kind) => kind is
+        "IfVariable" or "IfExpression" or "IfMoved" or "IfPixel" or "IfKeyDown" or "IfWindow" or "LanguagePair";
+
+    private Guid? LogicNext(BlockNode node, string port)
+    {
+        var yes = node.Link("Да");
+        var no = node.Link("Нет");
+        bool IsGate(Guid? id) => id is Guid target && _nodes.TryGetValue(target, out var targetNode) && IsLogicCondition(targetNode.Kind);
+        if (IsGate(yes) || IsGate(no))
+        {
+            var gate = IsGate(yes) ? yes : no;
+            if ((yes is not null && yes != gate) || (no is not null && no != gate))
+                throw new InvalidOperationException(UiLanguage.T("Соедините условие с одним логическим блоком; остальные ветки оставьте пустыми."));
+            return gate;
+        }
+        return node.Link(port);
+    }
+
+    private static bool IsLogicCondition(string kind) =>
+        kind is "IfNot" or "IfAnd" or "IfOr" or "IfOnly";
+
+    private string? EvaluateLogicFunction(string name, IReadOnlyList<string> args)
+    {
+        if (!name.Equals("keyDown", StringComparison.OrdinalIgnoreCase) &&
+            !name.Equals("keyPressed", StringComparison.OrdinalIgnoreCase)) return null;
+        if (args.Count != 1) throw new InvalidOperationException(UiLanguage.T("Функция keyDown/keyPressed ожидает одно имя клавиши."));
+        byte key;
+        try { key = NativeMouse.ParseControlKey(args[0]); }
+        catch (ArgumentException)
+        {
+            throw new InvalidOperationException(UiLanguage.Format("Неизвестная клавиша в логическом условии: {0}", args[0]));
+        }
+        var state = _keyState(key);
+        return (name.Equals("keyDown", StringComparison.OrdinalIgnoreCase) ? state.Down : state.Pressed)
+            ? "TRUE" : "FALSE";
     }
 
     private async Task Execute(Guid? first, CancellationToken cancel, int callDepth = 0,
@@ -338,6 +382,8 @@ internal sealed class Runner(ProjectModel project, Action<string> log, Action<in
         var steps = 0;
         var visited = new HashSet<Guid>();
         var errorAttempts = new Dictionary<Guid, int>();
+        bool? logicResult = null;
+        (BlockNode Gate, bool Left)? pendingLogic = null;
         watchedThisLap ??= [];
         while (current is Guid id && Volatile.Read(ref _stopRequested) == 0)
         {
@@ -445,6 +491,31 @@ internal sealed class Runner(ProjectModel project, Action<string> log, Action<in
                     ReportIndicatorCondition(node, selected);
                     traceOutput = selected ? "Да" : "Нет";
                     current = node.Link(traceOutput);
+                    break;
+                }
+                case "IfNot":
+                case "IfAnd":
+                case "IfOr":
+                case "IfOnly":
+                {
+                    if (logicResult is not bool left || pendingLogic is not null)
+                        throw new InvalidOperationException(UiLanguage.T("Логический блок должен следовать за условием «Если» или другим логическим блоком."));
+                    logicResult = null;
+                    if (node.Kind == "IfNot")
+                    {
+                        traceOutput = !left ? "Да" : "Нет";
+                        current = node.Link(traceOutput);
+                    }
+                    else
+                    {
+                        var operand = node.Link("Условие");
+                        if (operand is null || !_nodes.TryGetValue(operand.Value, out var condition) || !IsBooleanCondition(condition.Kind))
+                            throw new InvalidOperationException(UiLanguage.T("Соедините выход «Условие» логического блока с блоком «Если»."));
+                        if (condition.Link("Да") is not null || condition.Link("Нет") is not null)
+                            throw new InvalidOperationException(UiLanguage.T("Оставьте выходы второго условия пустыми; используйте выходы логического блока."));
+                        pendingLogic = (node, left);
+                        current = operand;
+                    }
                     break;
                 }
                 case "WhileExpression":
@@ -820,6 +891,20 @@ internal sealed class Runner(ProjectModel project, Action<string> log, Action<in
                     _variables.Set(node.Value("Result"), response.Body);
                     _variables.Set(node.Value("Status"), response.Status.ToString(
                         System.Globalization.CultureInfo.InvariantCulture));
+                    current = node.Link("Далее");
+                    break;
+                }
+                case "TelegramSend":
+                {
+                    var filePath = node.Value("FilePath");
+                    if (node.Value("Action") is "Файл" or "Сообщение и файл")
+                        filePath = ExternalTools.ResolvePath(filePath, _baseDirectory);
+                    var sent = await _telegramSend(
+                        _telegramToken(), node.Value("ChatId"), node.Value("Action"),
+                        node.Value("Message"), filePath, node.Int("TimeoutMs", 30000), cancel);
+                    _variables.Set(node.Value("Result"), sent.MessageId.ToString(
+                        System.Globalization.CultureInfo.InvariantCulture));
+                    log(UiLanguage.Format("Telegram: отправлено сообщение {0} в чат {1}.", sent.MessageId, node.Value("ChatId")));
                     current = node.Link("Далее");
                     break;
                 }
@@ -1650,6 +1735,35 @@ internal sealed class Runner(ProjectModel project, Action<string> log, Action<in
                     return;
                 default: throw new InvalidOperationException($"Неизвестный блок: {node.Kind}");
             }
+            if (IsBooleanCondition(node.Kind) && traceOutput is "Да" or "Нет")
+            {
+                var selected = traceOutput == "Да";
+                if (pendingLogic is { } pending)
+                {
+                    selected = pending.Gate.Kind switch
+                    {
+                        "IfAnd" => pending.Left && selected,
+                        "IfOr" => pending.Left || selected,
+                        "IfOnly" => pending.Left ^ selected,
+                        _ => throw new InvalidOperationException()
+                    };
+                    pendingLogic = null;
+                    logicResult = selected;
+                    var port = selected ? "Да" : "Нет";
+                    current = LogicNext(pending.Gate, port);
+                }
+                else
+                {
+                    logicResult = selected;
+                    current = LogicNext(node, traceOutput);
+                }
+            }
+            else if (node.Kind == "IfNot" && traceOutput is "Да" or "Нет")
+            {
+                logicResult = traceOutput == "Да";
+                current = LogicNext(node, traceOutput);
+            }
+            else if (pendingLogic is null && node.Kind is not ("IfAnd" or "IfOr" or "IfOnly")) logicResult = null;
             if (sourceNode.LogActions)
             {
                 log(BlockTrace.Completed(sourceNode, current, traceOutput));

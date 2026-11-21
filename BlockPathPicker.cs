@@ -21,6 +21,7 @@ internal static class BlockPathPicker
             ("CsvTable" or "ExcelTable", "Path") when action == "Записать ячейку" => Mode.Save,
             ("IniFile", "Path") when action == "Записать" => Mode.Save,
             ("OcrImage", "EnginePath") or ("WaitScreenText", "Engine") or ("RunAhk", "Interpreter") or
+                ("TelegramSend", "FilePath") or
                 ("Note", "ImagePath") or ("FileQueue", "CurrentFile") => Mode.Open,
             ("CountFileChars" or "EditFileLine" or "EditFileText" or "TextFile" or "TextFileArray" or "CsvTable" or "ExcelTable" or "PdfText" or "IniFile" or
                 "FindImage" or "BufferFindImage" or "BufferScanImage" or "OcrImage" or "ReadBarcode" or "Note" or

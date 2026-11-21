@@ -2,6 +2,40 @@ using System.Runtime.InteropServices;
 
 namespace KlikerBlocks;
 
+// Limit pending UI work while preserving the latest entries. File logging is independent.
+internal sealed class PendingJournalEntries(int capacity = 1000)
+{
+    private readonly object _sync = new();
+    private readonly Queue<string> _items = new();
+    private int _dropped;
+
+    internal void Enqueue(string entry)
+    {
+        lock (_sync)
+        {
+            if (_items.Count >= capacity) { _items.Dequeue(); _dropped++; }
+            _items.Enqueue(entry);
+        }
+    }
+
+    internal (int Dropped, string[] Entries) Take(int limit)
+    {
+        lock (_sync)
+        {
+            var dropped = _dropped;
+            _dropped = 0;
+            var entries = new List<string>(Math.Min(limit, _items.Count));
+            while (entries.Count < limit && _items.TryDequeue(out var entry)) entries.Add(entry);
+            return (dropped, entries.ToArray());
+        }
+    }
+
+    internal void Clear()
+    {
+        lock (_sync) { _items.Clear(); _dropped = 0; }
+    }
+}
+
 internal sealed class ExecutionJournal : RichTextBox
 {
     private const int MaxEntries = 500;

@@ -8,6 +8,21 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
+        if (args.Contains("--journal-ui-smoke"))
+        {
+            SelfTest.RunJournalUiSmoke();
+            return;
+        }
+        if (args.Contains("--logic-example-smoke"))
+        {
+            SelfTest.RunLogicExampleSmoke();
+            return;
+        }
+        if (args.Contains("--telegram-smoke"))
+        {
+            SelfTest.RunTelegramSmoke();
+            return;
+        }
         if (args.Contains("--self-test"))
         {
             SelfTest.Run();

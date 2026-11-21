@@ -4,19 +4,21 @@ namespace KlikerBlocks;
 
 // Expressions are opt-in in block fields: a leading '=' keeps older projects unchanged.
 internal sealed class ExpressionEvaluator(string source, Func<string, string?, string> variable,
-    Func<string, int>? arraySize = null, Func<string, string>? arrayPop = null)
+    Func<string, int>? arraySize = null, Func<string, string>? arrayPop = null,
+    Func<string, IReadOnlyList<string>, string?>? customFunction = null)
 {
     private int _position;
     private int _depth;
 
     public static string Evaluate(string source, Func<string, string?, string> variable,
-        Func<string, int>? arraySize = null, Func<string, string>? arrayPop = null)
+        Func<string, int>? arraySize = null, Func<string, string>? arrayPop = null,
+        Func<string, IReadOnlyList<string>, string?>? customFunction = null)
     {
         if (source.Length > 4096) throw new InvalidOperationException("Выражение слишком длинное (максимум 4096 символов).");
         if (ConditionalExpressionEvaluator.IsConditional(source))
             return ConditionalExpressionEvaluator.Evaluate(source,
-                part => Evaluate(part, variable, arraySize, arrayPop));
-        var parser = new ExpressionEvaluator(source, variable, arraySize, arrayPop);
+                part => Evaluate(part, variable, arraySize, arrayPop, customFunction));
+        var parser = new ExpressionEvaluator(source, variable, arraySize, arrayPop, customFunction);
         var value = parser.ParseOr();
         parser.Space();
         if (parser._position != source.Length) throw parser.Error("Лишний текст в конце выражения");
@@ -272,7 +274,9 @@ internal sealed class ExpressionEvaluator(string source, Func<string, string?, s
             case "hgettext":
                 Arity(1);
                 return WindowTools.ElementText(new IntPtr(checked((long)Number(args[0]))));
-            default: throw Error($"Неизвестная функция {name}");
+            default:
+                return customFunction?.Invoke(name, args.Select(Text).ToArray()) ??
+                    throw Error($"Неизвестная функция {name}");
         }
     }
 

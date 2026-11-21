@@ -245,14 +245,15 @@ internal sealed class VariableStore
 
     public string Expand(string text) => ReferencePattern.Replace(text, match => Get(match.Groups[1].Value));
 
-    public string Resolve(string text) => text.StartsWith("=[", StringComparison.Ordinal)
-        ? TextTemplateEvaluator.Evaluate(text[1..], Evaluate, Expand, Set)
-        : text.StartsWith('=') ? Evaluate(text[1..]) : Expand(text);
+    public string Resolve(string text, Func<string, IReadOnlyList<string>, string?>? customFunction = null) => text.StartsWith("=[", StringComparison.Ordinal)
+        ? TextTemplateEvaluator.Evaluate(text[1..], expression => Evaluate(expression, customFunction), Expand, Set)
+        : text.StartsWith('=') ? Evaluate(text[1..], customFunction) : Expand(text);
 
-    public string ResolveLines(string text) => string.Join('\n', text.Split('\n').Select(Resolve));
+    public string ResolveLines(string text) => string.Join('\n', text.Split('\n').Select(line => Resolve(line)));
 
-    public string Evaluate(string expression) => ExpressionEvaluator.Evaluate(expression, (name, index) =>
-        index is null ? Get(name) : GetArray(name, ArrayIndex(index)), ArraySize, ArrayPop);
+    public string Evaluate(string expression, Func<string, IReadOnlyList<string>, string?>? customFunction = null) =>
+        ExpressionEvaluator.Evaluate(expression, (name, index) =>
+            index is null ? Get(name) : GetArray(name, ArrayIndex(index)), ArraySize, ArrayPop, customFunction);
 
     private static int ArrayIndex(string value)
     {
